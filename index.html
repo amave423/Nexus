@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NEXUS · general</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="spotlight" id="spotlight" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="servers" id="servers"></div>
+    <div class="chan-head">
+      <div class="chan-title">
+        <span class="chan-glyph" id="chanGlyph"></span>
+        <h1 id="chanName">general</h1>
+      </div>
+      <p class="chan-topic" id="chanTopic"></p>
+    </div>
+    <div class="top-actions">
+      <div class="stat" id="stat"><span class="dot-live"></span><span id="statText">12 ms</span></div>
+      <button class="icon-btn" id="searchBtn" aria-label="Поиск"></button>
+      <button class="icon-btn" id="membersBtn" aria-label="Участники"></button>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <section class="stream-wrap">
+      <div class="stream" id="stream"></div>
+      <div class="typing" id="typing"><span class="typing-dots"><i></i><i></i><i></i></span><span id="typingText">Мира печатает</span></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <button type="button" class="comp-btn" id="attachBtn" aria-label="Вложение"></button>
+        <input id="input" type="text" placeholder="Написать в #general" />
+        <button type="button" class="comp-btn" id="emojiBtn" aria-label="Эмодзи"></button>
+        <button type="submit" class="send-btn" aria-label="Отправить"></button>
+      </form>
+    </section>
+    <aside class="members" id="members"></aside>
+  </main>
+
+  <footer class="dock">
+    <div class="voice-seg" id="voiceSeg"></div>
+    <div class="chan-rail" id="chanRail"></div>
+  </footer>
+
+  <div class="pip" id="pip" hidden>
+    <div class="pip-feed"></div>
+    <div class="pip-badge">LIVE</div>
+    <div class="pip-name">ты</div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
