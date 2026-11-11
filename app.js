@@ -20,7 +20,15 @@ const ICONS = {
   react: S('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>'),
   more: S('<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>'),
   menu: S('<path d="M4 7h16M4 12h16M4 17h16"/>'),
+  expand: S('<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/>'),
   phoneOff: S('<path d="M3 3l18 18"/><path d="M6.5 3.5 9 6l-1.5 3.5a12 12 0 0 0 6 6L17 14l2.5 2.5-1.5 3a2 2 0 0 1-2 1A16 16 0 0 1 3.5 6a2 2 0 0 1 1-2l2-.5z"/>'),
+  close: S('<path d="M6 6l12 12M18 6 6 18"/>'),
+  bell: S('<path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 0 0 3 0"/>'),
+  palette: S('<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9.5" r="1.2"/><circle cx="15" cy="9.5" r="1.2"/><circle cx="9.5" cy="15" r="1.2"/>'),
+  keyboard: S('<rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>'),
+  shield: S('<path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3z"/>'),
+  link: S('<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>'),
+  warn: S('<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 9v5M12 17h.01"/>'),
 };
 
 const USERS = {
@@ -119,10 +127,10 @@ const MESSAGES = {
 const MEMBERS = [
   {
     group: "в сети", items: [
-      { u: "artem", status: "#c8ff3d", act: "в голосовом · Кухня", live: true },
-      { u: "mira", status: "#c8ff3d", act: "печатает…", live: true },
-      { u: "kostya", status: "#c8ff3d", act: "в голосовом · Кухня", live: true },
-      { u: "dasha", status: "#ffb454", act: "отошла · 12 мин" },
+      { u: "artem", status: "#c8ff3d", act: "в голосовом", live: true },
+      { u: "mira", status: "#c8ff3d", act: "в голосовом", live: true },
+      { u: "kostya", status: "#c8ff3d", act: "в голосовом", live: true },
+      { u: "dasha", status: "#c8ff3d", act: "в голосовом", live: true },
       { u: "lev", status: "#ff6b8a", act: "не беспокоить" },
     ],
   },
@@ -135,24 +143,39 @@ const MEMBERS = [
 ];
 
 const $ = (id) => document.getElementById(id);
-const el = (html) => {
-  const t = document.createElement("template");
-  t.innerHTML = html.trim();
-  return t.content.firstElementChild;
-};
 const initial = (n) => n.trim().charAt(0).toUpperCase();
-
-function avatarHTML(user, cls = "") {
-  const u = USERS[user];
-  return `<span class="avatar ${cls}" style="background:linear-gradient(150deg,${u.color},${shade(u.color)})">${initial(u.name)}</span>`;
-}
+const plural = (n, a, b, c) => {
+  const m = n % 100, d = n % 10;
+  if (m > 10 && m < 20) return c;
+  if (d === 1) return a;
+  if (d >= 2 && d <= 4) return b;
+  return c;
+};
 function shade(hex) {
   const n = parseInt(hex.slice(1), 16);
   const r = Math.max(0, (n >> 16) - 70), g = Math.max(0, ((n >> 8) & 255) - 70), b = Math.max(0, (n & 255) - 70);
   return `rgb(${r},${g},${b})`;
 }
+function avatarHTML(user, cls = "") {
+  const u = USERS[user];
+  return `<span class="avatar ${cls}" style="background:linear-gradient(150deg,${u.color},${shade(u.color)})">${initial(u.name)}</span>`;
+}
 
-/* ---------- render ---------- */
+/* ---------- state ---------- */
+const VOICE = { mic: true, deaf: false, cam: false, screen: false };
+let currentId = "general";
+let roomMode = "ring";
+let roomTimer = null;
+let roomSeconds = 0;
+let speakTimer = null;
+
+const findChannel = (id) => {
+  for (const g of CHANNELS) for (const c of g.items) if (c.id === id) return c;
+  return null;
+};
+const isVoice = () => findChannel(currentId)?.type === "voice";
+
+/* ---------- render: chrome ---------- */
 function renderServers() {
   $("servers").innerHTML = SERVERS.map(
     (s) => `<button class="coin ${s.active ? "active" : ""} ${s.add ? "add" : ""}" data-id="${s.id}">${s.label}</button>`
@@ -160,6 +183,7 @@ function renderServers() {
   $("servers").querySelectorAll(".coin").forEach((c) => {
     c.addEventListener("click", () => {
       if (c.classList.contains("add")) return;
+      if (c.classList.contains("active")) { openModal("server"); return; }
       $("servers").querySelectorAll(".coin").forEach((x) => x.classList.remove("active"));
       c.classList.add("active");
     });
@@ -171,10 +195,10 @@ function renderChannels() {
   rail.innerHTML = CHANNELS.map((g) => {
     const items = g.items.map((c) => {
       if (c.type === "voice") {
-        const minis = c.live.map((u) => `<span class="mini-av" style="background:${USERS[u].color}">${initial(USERS[u].name)}</span>`).join("");
+        const n = c.live.length + (c.id === currentId ? 1 : 0);
         return `<button class="chan voice" data-id="${c.id}">
           ${ICONS.volume}<span class="nm">${c.name}</span>
-          ${c.live.length ? `<span class="mini">${minis}</span>` : `<span class="live-dot" style="background:#3a3a44;box-shadow:none;animation:none"></span>`}
+          ${n ? `<span class="chan-count">${n}</span>` : `<span class="live-dot" style="background:#3a3a44;box-shadow:none;animation:none"></span>`}
         </button>`;
       }
       return `<button class="chan" data-id="${c.id}">${ICONS.hash}<span class="nm">${c.name}</span></button>`;
@@ -185,23 +209,51 @@ function renderChannels() {
   rail.querySelectorAll(".chan").forEach((b) => b.addEventListener("click", () => openChannel(b.dataset.id)));
 }
 
-function findChannel(id) {
-  for (const g of CHANNELS) for (const c of g.items) if (c.id === id) return c;
-  return null;
+function renderMembers() {
+  const total = MEMBERS.reduce((a, g) => a + g.items.length, 0);
+  $("members").innerHTML = `
+    <div class="mem-head"><span>участники</span><span class="count">${total}</span></div>
+    ${MEMBERS.map((g) => `
+      <div class="mem-group">
+        <h3>${g.group} — ${g.items.length}</h3>
+        ${g.items.map((m) => {
+          const u = USERS[m.u];
+          const name = m.alt || u.name;
+          return `<div class="mem ${m.off ? "off" : ""}">
+            <span class="avatar" style="background:linear-gradient(150deg,${m.off ? "#3a3a44,#26262e" : u.color + "," + shade(u.color)})">
+              ${initial(name)}
+              <span class="status" style="background:${m.status}"></span>
+            </span>
+            <div class="mem-info">
+              <div class="mem-name">${name}</div>
+              <div class="mem-act ${m.live ? "live" : ""}">${m.act}</div>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>`).join("")}`;
 }
 
-function openChannel(id) {
-  const ch = findChannel(id);
-  if (!ch) return;
-  $("chanRail").querySelectorAll(".chan").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
-  $("chanName").textContent = ch.name;
-  $("chanTopic").textContent = ch.topic || (ch.type === "voice" ? "голосовой канал" : "");
-  $("chanGlyph").innerHTML = ch.type === "voice" ? ICONS.volume : ICONS.hash;
-  document.body.classList.remove("nav-open");
-  $("input").placeholder = ch.type === "voice" ? `Написать в ${ch.name}` : `Написать в #${ch.name}`;
-  renderStream(id);
+function renderVoiceConsole() {
+  $("voiceSeg").innerHTML = `
+    <div class="voice-top">
+      <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="voice-info">
+        <span class="lbl">в голосовом</span>
+        <span class="nm">Кухня · 4</span>
+      </div>
+    </div>
+    <div class="voice-btns">
+      <button class="vbtn ${VOICE.mic ? "" : "off"}" data-act="mic" title="Микрофон">${VOICE.mic ? ICONS.mic : ICONS.micOff}</button>
+      <button class="vbtn ${VOICE.deaf ? "off" : ""}" data-act="deaf" title="Звук">${VOICE.deaf ? ICONS.headphonesOff : ICONS.headphones}</button>
+      <button class="vbtn ${VOICE.cam ? "on" : ""}" data-act="cam" title="Камера">${ICONS.camera}</button>
+      <button class="vbtn ${VOICE.screen ? "on" : ""}" data-act="screen" title="Стрим">${ICONS.screen}</button>
+      <button class="vbtn leave" data-act="leave" title="Отключиться">${ICONS.phoneOff}</button>
+    </div>`;
+  $("voiceSeg").querySelectorAll(".vbtn").forEach((b) => b.addEventListener("click", () => voiceAction(b.dataset.act)));
+  $("voiceSeg").classList.toggle("muted", !VOICE.mic);
 }
 
+/* ---------- render: text ---------- */
 function renderStream(id) {
   const list = MESSAGES[id] || [{ div: "сегодня" }, { u: "mira", t: "—", text: "Тут пока тихо." }];
   const stream = $("stream");
@@ -238,64 +290,403 @@ function renderStream(id) {
   stream.scrollTop = stream.scrollHeight;
 }
 
-function renderMembers() {
-  const total = MEMBERS.reduce((a, g) => a + g.items.length, 0);
-  $("members").innerHTML = `
-    <div class="mem-head"><span>участники</span><span class="count">${total}</span></div>
-    ${MEMBERS.map((g) => `
-      <div class="mem-group">
-        <h3>${g.group} — ${g.items.length}</h3>
-        ${g.items.map((m) => {
+/* ---------- render: voice room ---------- */
+function roomPeople(ch) {
+  return ["artem", ...(ch.live || [])];
+}
+
+function renderRoom(ch) {
+  const people = roomPeople(ch);
+  $("room").innerHTML = `
+    <div class="room-head">
+      <div class="room-title">
+        <span class="live-dot"></span>
+        <h2>${ch.name}</h2>
+        <span class="room-timer" id="roomTimer">00:00</span>
+      </div>
+      <div class="room-meta">${people.length} ${plural(people.length, "участник", "участника", "участников")} · opus 48 kHz</div>
+    </div>
+    <div class="room-stage" id="roomStage"></div>
+    <div class="room-controls" id="roomControls"></div>`;
+  renderStage(ch, people);
+  renderRoomControls();
+  startRoomTimer();
+}
+
+function renderStage(ch, people) {
+  const stage = $("roomStage");
+  if (!stage) return;
+
+  if (roomMode === "stream") {
+    const who = VOICE.screen ? "artem" : ((ch.live && ch.live[0]) || "artem");
+    const viewers = Math.max(0, people.length - 1);
+    const whoText = who === "artem" ? "Ты стримишь" : `${USERS[who].name} стримит`;
+    stage.innerHTML = `
+      <div class="stream-view">
+        <div class="stream-feed" id="streamFeed">
+          <div class="mock">
+            <div class="mock-bar"><i></i><i></i><i></i><b>nexus.local — общий экран</b></div>
+            <div class="mock-cols">
+              <div class="mock-col">
+                <span style="width:70%"></span><span style="width:52%"></span><span style="width:64%"></span>
+                <span style="width:40%"></span><span style="width:78%"></span>
+              </div>
+              <div class="mock-col">
+                <span style="width:88%"></span><span style="width:46%"></span><span style="width:76%"></span>
+                <span style="width:58%"></span><span style="width:34%"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="stream-badge"><span class="live-dot"></span>LIVE</div>
+        <div class="stream-who">${whoText} · ${viewers} ${plural(viewers, "смотрит", "смотрят", "смотрят")}</div>
+        <button class="fs-btn" id="fsBtn">${ICONS.expand}<span>На весь экран</span></button>
+        <div class="stream-strip">
+          ${people.map((u) => `<span class="strip-av" style="background:linear-gradient(150deg,${USERS[u].color},${shade(USERS[u].color)})">${initial(USERS[u].name)}</span>`).join("")}
+        </div>
+      </div>`;
+    $("fsBtn").addEventListener("click", () => {
+      const f = $("streamFeed");
+      if (document.fullscreenElement) document.exitFullscreen();
+      else f.requestFullscreen?.();
+    });
+    return;
+  }
+
+  if (roomMode === "cams") {
+    stage.innerHTML = `<div class="cams">${people.map((u, i) => `
+      <div class="cam" style="--i:${i}">
+        <div class="cam-feed" style="--c:${USERS[u].color}"></div>
+        <span class="cam-name">${USERS[u].name}${u === "artem" ? " · ты" : ""}</span>
+        <span class="cam-mic">${ICONS.mic}</span>
+      </div>`).join("")}</div>`;
+    return;
+  }
+
+  const n = people.length;
+  const maxR = Math.min(stage.clientWidth || 420, stage.clientHeight || 420) / 2 - 46;
+  const radius = Math.round(Math.max(86, Math.min(180, maxR)));
+  stage.innerHTML = `
+    <div class="ring" data-n="${n}" style="--r:${radius}px">
+      <div class="orb">
+        <span class="orb-ring"></span>
+        <span class="orb-ring r2"></span>
+        <span class="orb-core"></span>
+      </div>
+      ${people.map((u, i) => {
+        const a = (360 / n) * i - 90;
+        return `<div class="seat" style="--a:${a}deg" data-u="${u}">
+          <span class="seat-av" style="background:linear-gradient(150deg,${USERS[u].color},${shade(USERS[u].color)})">${initial(USERS[u].name)}</span>
+          <span class="seat-name">${USERS[u].name}${u === "artem" ? " · ты" : ""}</span>
+        </div>`;
+      }).join("")}
+      ${n === 1 ? `<p class="room-empty">тут пока никого · позови своих</p>` : ""}
+    </div>`;
+  startSpeaking();
+}
+
+function renderRoomControls() {
+  const box = $("roomControls");
+  if (!box) return;
+  box.innerHTML = `
+    <button class="rbtn ${VOICE.mic ? "" : "off"}" data-act="mic" title="Микрофон">${VOICE.mic ? ICONS.mic : ICONS.micOff}</button>
+    <button class="rbtn ${VOICE.deaf ? "off" : ""}" data-act="deaf" title="Звук">${VOICE.deaf ? ICONS.headphonesOff : ICONS.headphones}</button>
+    <button class="rbtn ${VOICE.cam ? "on" : ""}" data-act="cam" title="Камера">${ICONS.camera}</button>
+    <button class="rbtn ${VOICE.screen ? "on" : ""}" data-act="screen" title="Стрим">${ICONS.screen}</button>
+    <button class="rbtn leave" data-act="leave">${ICONS.phoneOff}<span>Выйти</span></button>`;
+  box.querySelectorAll(".rbtn").forEach((b) => b.addEventListener("click", () => voiceAction(b.dataset.act)));
+}
+
+function startSpeaking() {
+  clearInterval(speakTimer);
+  const seats = [...document.querySelectorAll(".seat")];
+  if (!seats.length) return;
+  let i = 0;
+  const orb = document.querySelector(".orb");
+  const tick = () => {
+    seats.forEach((s) => s.classList.remove("speaking"));
+    seats[i % seats.length].classList.add("speaking");
+    orb?.classList.add("active");
+    i++;
+  };
+  tick();
+  speakTimer = setInterval(tick, 2400);
+}
+
+function startRoomTimer() {
+  clearInterval(roomTimer);
+  roomSeconds = 0;
+  const paint = () => {
+    const t = $("roomTimer");
+    if (!t) return;
+    const m = String(Math.floor(roomSeconds / 60)).padStart(2, "0");
+    const s = String(roomSeconds % 60).padStart(2, "0");
+    t.textContent = `${m}:${s}`;
+  };
+  paint();
+  roomTimer = setInterval(() => { roomSeconds++; paint(); }, 1000);
+}
+
+/* ---------- actions ---------- */
+function voiceAction(act) {
+  if (act === "leave") {
+    openChannel("general");
+    return;
+  }
+  if (act === "mic") VOICE.mic = !VOICE.mic;
+  if (act === "deaf") VOICE.deaf = !VOICE.deaf;
+  if (act === "cam") VOICE.cam = !VOICE.cam;
+  if (act === "screen") VOICE.screen = !VOICE.screen;
+
+  if (act === "cam" || act === "screen") {
+    if (VOICE.screen) roomMode = "stream";
+    else if (VOICE.cam) roomMode = "cams";
+    else roomMode = "ring";
+  }
+  syncVoice();
+}
+
+function syncVoice() {
+  renderVoiceConsole();
+  if (isVoice()) {
+    const ch = findChannel(currentId);
+    renderStage(ch, roomPeople(ch));
+    renderRoomControls();
+  }
+  $("pip").hidden = !(VOICE.cam && !isVoice());
+}
+
+function openChannel(id) {
+  const ch = findChannel(id);
+  if (!ch) return;
+  currentId = id;
+  renderChannels();
+  $("chanRail").querySelectorAll(".chan").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
+  $("chanName").textContent = ch.name;
+  $("chanGlyph").innerHTML = ch.type === "voice" ? ICONS.volume : ICONS.hash;
+  document.body.classList.remove("nav-open");
+
+  const wrap = $("streamWrap");
+  document.body.classList.toggle("in-voice", ch.type === "voice");
+  if (ch.type === "voice") {
+    $("chanTopic").textContent = `голосовой канал · ${roomPeople(ch).length} ${plural(roomPeople(ch).length, "участник", "участника", "участников")}`;
+    wrap.classList.add("voice-mode");
+    $("room").hidden = false;
+    roomMode = VOICE.screen ? "stream" : VOICE.cam ? "cams" : "ring";
+    renderRoom(ch);
+  } else {
+    $("chanTopic").textContent = ch.topic || "";
+    wrap.classList.remove("voice-mode");
+    $("room").hidden = true;
+    clearInterval(roomTimer);
+    clearInterval(speakTimer);
+    $("input").placeholder = `Написать в #${ch.name}`;
+    renderStream(id);
+  }
+  syncVoice();
+}
+
+/* ---------- settings modals ---------- */
+const row = (title, desc, control) =>
+  `<div class="set-row"><div class="set-row-t"><b>${title}</b>${desc ? `<span>${desc}</span>` : ""}</div>${control}</div>`;
+const sw = (on) => `<button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}"><i></i></button>`;
+const sel = (opts) => `<select class="set-select">${opts.map((o) => `<option>${o}</option>`).join("")}</select>`;
+const field = (label, inner) => `<div class="set-field"><label>${label}</label>${inner}</div>`;
+const kbd = (k) => `<span class="kbd">${k}</span>`;
+
+const MODALS = {
+  user: {
+    title: "Настройки",
+    nav: [
+      { grp: "аккаунт" },
+      { id: "profile", label: "Профиль", icon: ICONS.users },
+      { id: "voice", label: "Голос и видео", icon: ICONS.mic },
+      { grp: "приложение" },
+      { id: "notify", label: "Уведомления", icon: ICONS.bell },
+      { id: "look", label: "Внешний вид", icon: ICONS.palette },
+      { id: "keys", label: "Горячие клавиши", icon: ICONS.keyboard },
+    ],
+    panes: {
+      profile: () => `
+        <div class="set-profile">
+          <span class="set-avatar" style="background:linear-gradient(150deg,#c8ff3d,#8fbf1f)">А</span>
+          <div class="who"><b>Артём</b><span>@artem · owner</span></div>
+        </div>
+        ${field("Отображаемое имя", `<input class="set-input" value="Артём">`)}
+        ${field("О себе", `<textarea class="set-input">Собираю свой дискорд на одном ядре.</textarea>`)}
+        ${row("Статус", "Что видят остальные рядом с твоим именем", sel(["в сети", "отошёл", "не беспокоить", "невидимка"]))}
+        ${row("Личные сообщения", "Кто может писать тебе напрямую", sel(["Все с сервера", "Только друзья", "Никто"]))}`,
+      voice: () => `
+        ${row("Микрофон", "Устройство ввода", sel(["Default — Realtek Audio", "HyperX QuadCast", "Виртуальный кабель"]))}
+        ${row("Выход", "Устройство вывода", sel(["Default — Наушники", "Колонки"]))}
+        ${field("Уровень микрофона", `<input type="range" class="set-range" min="0" max="100" value="62">`)}
+        ${row("Шумоподавление", "Убирает фон: клавиатуру, вентилятор, улицу", sw(true))}
+        ${row("Эхоподавление", "Гасит эхо, когда слушаешь в колонках", sw(true))}
+        ${row("Автоусиление", "Подтягивает тихий голос", sw(false))}
+        ${row("Режим речи", "Приглушать остальных, пока говоришь ты", sw(true))}
+        ${row("Качество", "Битрейт звука в комнате", sel(["64 kbps", "96 kbps", "128 kbps"]))}`,
+      notify: () => `
+        ${row("Уведомления на рабочем столе", "Всплывающие окна, когда вкладка свёрнута", sw(true))}
+        ${row("Звук уведомлений", "Короткий сигнал на новое сообщение", sw(false))}
+        ${row("Упоминания", "Всегда подсвечивать @упоминания", sw(true))}
+        ${row("Не беспокоить", "Скрыть все уведомления", sw(false))}
+        ${row("Почта", "Куда писать, если тебя долго нет", `<input class="set-input" style="max-width:240px" value="artem@nexus.local">`)}`,
+      look: () => `
+        ${row("Тема", "Пока только одна — чернила", sel(["Чернила (тёмная)", "Полночь", "Контраст"]))}
+        ${row("Плотность", "Сколько сообщений влезает на экран", sel(["Просторно", "Обычно", "Плотно"]))}
+        ${row("Акцент", "Единственный цвет, который что-то значит", `<div class="set-swatches">
+          <span class="swatch on" style="background:#c8ff3d"></span>
+          <span class="swatch" style="background:#6fe3ff"></span>
+          <span class="swatch" style="background:#ff6b8a"></span>
+          <span class="swatch" style="background:#b18cff"></span>
+        </div>`)}
+        ${row("Анимации", "Волны, свечение, переходы", sw(true))}
+        ${row("Фон", "Размытые пятна за интерфейсом", sw(true))}`,
+      keys: () => `
+        ${row("Микрофон", "Вкл / выкл", kbd("Ctrl") + kbd("M"))}
+        ${row("Звук", "Вкл / выкл", kbd("Ctrl") + kbd("D"))}
+        ${row("Камера", "Вкл / выкл", kbd("Ctrl") + kbd("E"))}
+        ${row("Стрим", "Начать / остановить", kbd("Ctrl") + kbd("S"))}
+        ${row("Выйти из комнаты", "Отключиться от голоса", kbd("Ctrl") + kbd("Q"))}
+        ${row("Поиск", "Открыть поиск по каналу", kbd("Ctrl") + kbd("F"))}`,
+    },
+  },
+  server: {
+    title: "Настройки сервера",
+    nav: [
+      { grp: "сервер" },
+      { id: "overview", label: "Обзор", icon: ICONS.shield },
+      { id: "roles", label: "Роли", icon: ICONS.users },
+      { id: "members", label: "Участники", icon: ICONS.users },
+      { id: "invites", label: "Приглашения", icon: ICONS.link },
+      { grp: "опасное" },
+      { id: "danger", label: "Удаление", icon: ICONS.warn },
+    ],
+    panes: {
+      overview: () => `
+        <div class="set-profile">
+          <span class="set-avatar" style="background:linear-gradient(150deg,#c8ff3d,#8fbf1f)">N</span>
+          <div class="who"><b>NEXUS</b><span>12 участников · создан 3 дня назад</span></div>
+        </div>
+        ${field("Название сервера", `<input class="set-input" value="NEXUS">`)}
+        ${field("Описание", `<textarea class="set-input">Голосовая комната для своих.</textarea>`)}
+        ${row("Уровень проверки", "Кто может писать в каналы", sel(["Все", "Только участники", "Только роли"]))}
+        ${row("Системные сообщения", "Показывать входы и выходы в ленте", sw(true))}`,
+      roles: () => `
+        ${row("Роли", "Цвет и права. Выше — важнее", `<button class="set-copy">Создать</button>`)}
+        ${[["owner", "#c8ff3d", 1], ["admin", "#b18cff", 1], ["dev", "#6fe3ff", 2], ["design", "#ff6b8a", 1], ["guest", "#ffb454", 7]]
+          .map(([n, c, k]) => `<div class="set-role"><span class="dot" style="background:${c}"></span><span class="nm">${n}</span><span class="cnt">${k} ${plural(k, "человек", "человека", "человек")}</span></div>`).join("")}
+        ${row("Права по умолчанию", "Что может новый участник", sel(["Читать и писать", "Только читать", "Ничего"]))}`,
+      members: () => `
+        ${row("Участники", "12 человек на сервере", `<input class="set-input" style="max-width:200px" placeholder="Поиск по имени">`)}
+        ${MEMBERS.flatMap((g) => g.items).map((m) => {
           const u = USERS[m.u];
           const name = m.alt || u.name;
-          return `<div class="mem ${m.off ? "off" : ""}">
-            <span class="avatar" style="background:linear-gradient(150deg,${m.off ? "#3a3a44,#26262e" : u.color + "," + shade(u.color)})">
-              ${initial(name)}
-              <span class="status" style="background:${m.status}"></span>
-            </span>
-            <div class="mem-info">
-              <div class="mem-name">${name}</div>
-              <div class="mem-act ${m.live ? "live" : ""}">${m.act}</div>
-            </div>
+          return `<div class="set-role">
+            <span class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:10px;background:linear-gradient(150deg,${u.color},${shade(u.color)})">${initial(name)}</span>
+            <span class="nm">${name}</span>
+            <span class="cnt">${m.off ? "не в сети" : "в сети"}</span>
           </div>`;
-        }).join("")}
-      </div>`).join("")}`;
+        }).join("")}`,
+      invites: () => `
+        ${field("Ссылка-приглашение", `<div class="set-invite"><input class="set-input" value="nexus.gg/kuhnya-2026" readonly><button class="set-copy">Копировать</button></div>`)}
+        ${row("Срок действия", "Когда ссылка перестанет работать", sel(["Никогда", "1 день", "7 дней", "30 дней"]))}
+        ${row("Лимит входов", "Сколько человек может зайти", sel(["Без лимита", "5", "10", "25"]))}
+        ${row("Временный канал", "Создавать комнату при входе", sw(false))}`,
+      danger: () => `
+        <div class="set-danger">
+          <b>Удалить сервер</b>
+          <span>Все каналы, сообщения и роли исчезнут. Отменить это будет нельзя.</span>
+          <button>Удалить NEXUS</button>
+        </div>
+        <div class="set-danger">
+          <b>Передать владение</b>
+          <span>Ты перестанешь быть владельцем. Обратно это уже не вернуть.</span>
+          <button>Передать</button>
+        </div>`,
+    },
+  },
+};
+
+let modalKind = null;
+let modalTab = null;
+
+function renderModalNav() {
+  const m = MODALS[modalKind];
+  $("setNav").innerHTML = m.nav.map((n) => n.grp
+    ? `<span class="grp">${n.grp}</span>`
+    : `<button data-tab="${n.id}" class="${n.id === modalTab ? "active" : ""}">${n.icon}<span>${n.label}</span></button>`
+  ).join("");
+  $("setNav").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    modalTab = b.dataset.tab;
+    renderModalNav();
+    renderModalPane();
+  }));
 }
 
-function renderVoice() {
-  $("voiceSeg").innerHTML = `
-    <div class="voice-top">
-      <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="voice-info">
-        <span class="lbl">в голосовом</span>
-        <span class="nm">Кухня · 3</span>
-      </div>
-    </div>
-    <div class="voice-btns">
-      <button class="vbtn" id="micBtn" title="Микрофон">${ICONS.mic}</button>
-      <button class="vbtn" id="deafBtn" title="Звук">${ICONS.headphones}</button>
-      <button class="vbtn" id="camBtn" title="Камера">${ICONS.camera}</button>
-      <button class="vbtn" id="scrBtn" title="Экран">${ICONS.screen}</button>
-      <button class="vbtn leave" title="Отключиться">${ICONS.phoneOff}</button>
-    </div>`;
+function renderModalPane() {
+  const pane = $("setPane");
+  pane.innerHTML = MODALS[modalKind].panes[modalTab]();
+  pane.scrollTop = 0;
+  pane.querySelectorAll(".switch").forEach((s) => s.addEventListener("click", () => {
+    s.classList.toggle("on");
+    s.setAttribute("aria-checked", s.classList.contains("on"));
+  }));
+  pane.querySelectorAll(".swatch").forEach((s) => s.addEventListener("click", () => {
+    pane.querySelectorAll(".swatch").forEach((x) => x.classList.remove("on"));
+    s.classList.add("on");
+  }));
+  const copy = pane.querySelector(".set-copy");
+  if (copy && copy.previousElementSibling?.tagName === "INPUT") {
+    copy.addEventListener("click", () => {
+      const inp = copy.previousElementSibling;
+      inp.select();
+      navigator.clipboard?.writeText(inp.value);
+      copy.textContent = "Скопировано";
+      setTimeout(() => (copy.textContent = "Копировать"), 1600);
+    });
+  }
 }
 
-/* ---------- interactions ---------- */
+function openModal(kind, tab) {
+  modalKind = kind;
+  const m = MODALS[kind];
+  modalTab = tab || m.nav.find((n) => n.id).id;
+  $("setTitle").textContent = m.title;
+  renderModalNav();
+  renderModalPane();
+  $("modal").hidden = false;
+}
+
+function closeModal() {
+  $("modal").hidden = true;
+}
+
+/* ---------- wire ---------- */
 function wire() {
   $("searchBtn").innerHTML = ICONS.search;
-  $("menuBtn").innerHTML = ICONS.menu;
-  $("menuBtn").addEventListener("click", () => document.body.classList.toggle("nav-open"));
-  $("scrim").addEventListener("click", () => document.body.classList.remove("nav-open"));
   $("membersBtn").innerHTML = ICONS.users;
   $("attachBtn").innerHTML = ICONS.clip;
   $("emojiBtn").innerHTML = ICONS.smile;
+  $("menuBtn").innerHTML = ICONS.menu;
   document.querySelector(".send-btn").innerHTML = ICONS.send;
+
+  $("profileBtn").innerHTML = avatarHTML("artem");
+  $("profileBtn").addEventListener("click", () => openModal("user"));
+  $("setClose").innerHTML = ICONS.close;
+  $("setClose").addEventListener("click", closeModal);
+  $("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+  $("menuBtn").addEventListener("click", () => document.body.classList.toggle("nav-open"));
+  $("scrim").addEventListener("click", () => document.body.classList.remove("nav-open"));
 
   $("membersBtn").addEventListener("click", () => {
     const stage = $("stage");
     stage.classList.toggle("hide-members");
     $("membersBtn").classList.toggle("on", !stage.classList.contains("hide-members"));
   });
+
   const mq = window.matchMedia("(max-width: 860px)");
   const syncLayout = () => {
     $("stage").classList.toggle("hide-members", mq.matches);
@@ -310,30 +701,20 @@ function wire() {
     const input = $("input");
     const text = input.value.trim();
     if (!text) return;
-    const id = $("chanRail").querySelector(".chan.active")?.dataset.id || "general";
-    (MESSAGES[id] = MESSAGES[id] || []).push({
+    (MESSAGES[currentId] = MESSAGES[currentId] || []).push({
       u: "artem", t: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }),
       text: text.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c])),
     });
     input.value = "";
-    renderStream(id);
+    renderStream(currentId);
   });
 
-  $("micBtn").addEventListener("click", (e) => {
-    const b = e.currentTarget;
-    b.classList.toggle("off");
-    b.innerHTML = b.classList.contains("off") ? ICONS.micOff : ICONS.mic;
-    $("voiceSeg").classList.toggle("muted", b.classList.contains("off"));
-  });
-  $("deafBtn").addEventListener("click", (e) => {
-    const b = e.currentTarget;
-    b.classList.toggle("off");
-    b.innerHTML = b.classList.contains("off") ? ICONS.headphonesOff : ICONS.headphones;
-  });
-  $("camBtn").addEventListener("click", (e) => {
-    const b = e.currentTarget;
-    b.classList.toggle("off");
-    $("pip").hidden = !b.classList.contains("off");
+  let rz;
+  window.addEventListener("resize", () => {
+    clearTimeout(rz);
+    rz = setTimeout(() => {
+      if (isVoice()) renderStage(findChannel(currentId), roomPeople(findChannel(currentId)));
+    }, 160);
   });
 
   const spot = $("spotlight");
@@ -343,7 +724,7 @@ function wire() {
 
   const typing = $("typing");
   const cycle = () => {
-    typing.classList.add("show");
+    if (!isVoice()) typing.classList.add("show");
     setTimeout(() => typing.classList.remove("show"), 3200);
     setTimeout(cycle, 9000 + Math.random() * 6000);
   };
@@ -353,6 +734,6 @@ function wire() {
 renderServers();
 renderChannels();
 renderMembers();
-renderVoice();
+renderVoiceConsole();
 wire();
 openChannel("general");

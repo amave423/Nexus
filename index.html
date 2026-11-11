@@ -28,6 +28,7 @@
       <div class="stat" id="stat"><span class="dot-live"></span><span id="statText">12 ms</span></div>
       <button class="icon-btn" id="searchBtn" aria-label="Поиск"></button>
       <button class="icon-btn" id="membersBtn" aria-label="Участники"></button>
+      <button class="profile-btn" id="profileBtn" aria-label="Настройки"></button>
     </div>
   </header>
 
@@ -37,7 +38,8 @@
       <div class="voice-seg" id="voiceSeg"></div>
     </aside>
 
-    <section class="stream-wrap">
+    <section class="stream-wrap" id="streamWrap">
+      <div class="room" id="room" hidden></div>
       <div class="stream" id="stream"></div>
       <div class="typing" id="typing"><span class="typing-dots"><i></i><i></i><i></i></span><span id="typingText">Мира печатает</span></div>
       <form class="composer" id="composer" autocomplete="off">
@@ -52,6 +54,19 @@
   </main>
 
   <div class="scrim" id="scrim"></div>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-card">
+      <aside class="set-nav" id="setNav"></aside>
+      <div class="set-main">
+        <header class="set-head">
+          <h2 id="setTitle"></h2>
+          <button class="icon-btn" id="setClose" aria-label="Закрыть"></button>
+        </header>
+        <div class="set-pane" id="setPane"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="pip" id="pip" hidden>
     <div class="pip-feed"></div>
