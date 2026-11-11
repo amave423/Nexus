@@ -15,6 +15,7 @@
   <div class="grain" aria-hidden="true"></div>
 
   <header class="topbar">
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="Каналы"></button>
     <div class="servers" id="servers"></div>
     <div class="chan-head">
       <div class="chan-title">
@@ -31,6 +32,11 @@
   </header>
 
   <main class="stage" id="stage">
+    <aside class="sidebar" id="sidebar">
+      <div class="chan-rail" id="chanRail"></div>
+      <div class="voice-seg" id="voiceSeg"></div>
+    </aside>
+
     <section class="stream-wrap">
       <div class="stream" id="stream"></div>
       <div class="typing" id="typing"><span class="typing-dots"><i></i><i></i><i></i></span><span id="typingText">Мира печатает</span></div>
@@ -41,13 +47,11 @@
         <button type="submit" class="send-btn" aria-label="Отправить"></button>
       </form>
     </section>
+
     <aside class="members" id="members"></aside>
   </main>
 
-  <footer class="dock">
-    <div class="voice-seg" id="voiceSeg"></div>
-    <div class="chan-rail" id="chanRail"></div>
-  </footer>
+  <div class="scrim" id="scrim"></div>
 
   <div class="pip" id="pip" hidden>
     <div class="pip-feed"></div>

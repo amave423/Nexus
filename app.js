@@ -19,6 +19,7 @@ const ICONS = {
   reply: S('<path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 7 7v3"/>'),
   react: S('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>'),
   more: S('<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>'),
+  menu: S('<path d="M4 7h16M4 12h16M4 17h16"/>'),
   phoneOff: S('<path d="M3 3l18 18"/><path d="M6.5 3.5 9 6l-1.5 3.5a12 12 0 0 0 6 6L17 14l2.5 2.5-1.5 3a2 2 0 0 1-2 1A16 16 0 0 1 3.5 6a2 2 0 0 1 1-2l2-.5z"/>'),
 };
 
@@ -172,11 +173,11 @@ function renderChannels() {
       if (c.type === "voice") {
         const minis = c.live.map((u) => `<span class="mini-av" style="background:${USERS[u].color}">${initial(USERS[u].name)}</span>`).join("");
         return `<button class="chan voice" data-id="${c.id}">
-          ${ICONS.volume}<span>${c.name}</span>
+          ${ICONS.volume}<span class="nm">${c.name}</span>
           ${c.live.length ? `<span class="mini">${minis}</span>` : `<span class="live-dot" style="background:#3a3a44;box-shadow:none;animation:none"></span>`}
         </button>`;
       }
-      return `<button class="chan" data-id="${c.id}">${ICONS.hash}<span>${c.name}</span></button>`;
+      return `<button class="chan" data-id="${c.id}">${ICONS.hash}<span class="nm">${c.name}</span></button>`;
     }).join("");
     return `<span class="chan-group">${g.group}</span>${items}`;
   }).join("");
@@ -196,6 +197,7 @@ function openChannel(id) {
   $("chanName").textContent = ch.name;
   $("chanTopic").textContent = ch.topic || (ch.type === "voice" ? "голосовой канал" : "");
   $("chanGlyph").innerHTML = ch.type === "voice" ? ICONS.volume : ICONS.hash;
+  document.body.classList.remove("nav-open");
   $("input").placeholder = ch.type === "voice" ? `Написать в ${ch.name}` : `Написать в #${ch.name}`;
   renderStream(id);
 }
@@ -262,10 +264,12 @@ function renderMembers() {
 
 function renderVoice() {
   $("voiceSeg").innerHTML = `
-    <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
-    <div class="voice-info">
-      <span class="lbl">в голосовом</span>
-      <span class="nm">Кухня · 3</span>
+    <div class="voice-top">
+      <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="voice-info">
+        <span class="lbl">в голосовом</span>
+        <span class="nm">Кухня · 3</span>
+      </div>
     </div>
     <div class="voice-btns">
       <button class="vbtn" id="micBtn" title="Микрофон">${ICONS.mic}</button>
@@ -279,6 +283,9 @@ function renderVoice() {
 /* ---------- interactions ---------- */
 function wire() {
   $("searchBtn").innerHTML = ICONS.search;
+  $("menuBtn").innerHTML = ICONS.menu;
+  $("menuBtn").addEventListener("click", () => document.body.classList.toggle("nav-open"));
+  $("scrim").addEventListener("click", () => document.body.classList.remove("nav-open"));
   $("membersBtn").innerHTML = ICONS.users;
   $("attachBtn").innerHTML = ICONS.clip;
   $("emojiBtn").innerHTML = ICONS.smile;
@@ -289,9 +296,14 @@ function wire() {
     stage.classList.toggle("hide-members");
     $("membersBtn").classList.toggle("on", !stage.classList.contains("hide-members"));
   });
-  const narrow = window.matchMedia("(max-width: 860px)").matches;
-  if (narrow) $("stage").classList.add("hide-members");
-  $("membersBtn").classList.toggle("on", !narrow);
+  const mq = window.matchMedia("(max-width: 860px)");
+  const syncLayout = () => {
+    $("stage").classList.toggle("hide-members", mq.matches);
+    $("membersBtn").classList.toggle("on", !mq.matches);
+    document.body.classList.remove("nav-open");
+  };
+  syncLayout();
+  mq.addEventListener("change", syncLayout);
 
   $("composer").addEventListener("submit", (e) => {
     e.preventDefault();
