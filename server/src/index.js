@@ -16,7 +16,7 @@ if (!hasSpace) {
   console.log("[nexus] создано пространство по умолчанию");
 }
 
-const app = buildApp({ db, logger: false });
+const app = buildApp({ db, logger: false, uploadDir: join(dataDir, "uploads") });
 
 try {
   await app.voice.init();

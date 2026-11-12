@@ -1,5 +1,9 @@
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
+import multipart from "@fastify/multipart";
+import { createReadStream, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { join } from "node:path";
 import { hashCode, verifyCode, newToken, newInvite } from "./auth.js";
 import { Hub } from "./realtime.js";
 import { Voice } from "./voice.js";
@@ -7,17 +11,26 @@ import { seedRoles } from "./db.js";
 
 const COLORS = ["#c8ff3d", "#6fe3ff", "#ff6b8a", "#ffb454", "#b18cff", "#7dffb0"];
 const STATUSES = ["online", "idle", "dnd", "invisible"];
-const PERMISSIONS = ["manage_server", "manage_roles", "manage_members", "manage_invites", "send_messages"];
+const PERMISSIONS = [
+  "manage_server",
+  "manage_roles",
+  "manage_members",
+  "manage_invites",
+  "manage_messages",
+  "send_messages",
+];
 
 const BASE_PERMISSIONS = {
   owner: PERMISSIONS,
-  admin: ["manage_roles", "manage_members", "manage_invites", "send_messages"],
+  admin: ["manage_roles", "manage_members", "manage_invites", "manage_messages", "send_messages"],
   member: ["send_messages"],
 };
 
-export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
-  const app = Fastify({ logger });
+export function buildApp({ db, logger = false, voice: injectedVoice = null, uploadDir = null }) {
+  const app = Fastify({ logger, bodyLimit: 2 * 1024 * 1024 });
   const hub = new Hub();
+  const filesDir = uploadDir || join(process.cwd(), "data", "uploads");
+  mkdirSync(filesDir, { recursive: true });
 
   const spaceOfChannel = (channelId) =>
     db.prepare("SELECT space_id AS spaceId FROM channels WHERE id = ?").get(channelId)?.spaceId;
@@ -34,6 +47,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
   app.decorate("voice", voice);
 
   app.register(websocket);
+  app.register(multipart, { limits: { fileSize: 12 * 1024 * 1024, files: 1 } });
 
   app.addHook("onRequest", async (req, reply) => {
     reply.header("access-control-allow-origin", "*");
@@ -143,14 +157,68 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
 
   const memberOf = (spaceId, userId) => membersOf(spaceId).find((m) => m.id === userId) || null;
 
-  const messageRow = (id) =>
+  const attachmentsOf = (messageId) =>
     db
       .prepare(
+        "SELECT id, url, name, mime, size, width, height FROM attachments WHERE message_id = ? ORDER BY id"
+      )
+      .all(messageId);
+
+  const reactionsOf = (messageId, viewerId) => {
+    const rows = db
+      .prepare(
+        `SELECT emoji, COUNT(*) AS count, MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS mine
+         FROM reactions WHERE message_id = ? GROUP BY emoji ORDER BY MIN(created_at)`
+      )
+      .all(viewerId, messageId);
+    return rows.map((r) => ({ emoji: r.emoji, count: r.count, mine: !!r.mine }));
+  };
+
+  const replyOf = (messageId) => {
+    if (!messageId) return null;
+    const row = db
+      .prepare(
+        `SELECT m.id, m.text, m.deleted, u.name, u.color FROM messages m
+         JOIN users u ON u.id = m.user_id WHERE m.id = ?`
+      )
+      .get(messageId);
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      color: row.color,
+      text: row.deleted ? "сообщение удалено" : row.text.slice(0, 180),
+    };
+  };
+
+  const messageRow = (id, viewerId = 0) => {
+    const row = db
+      .prepare(
         `SELECT m.id, m.channel_id AS channelId, m.user_id AS userId, m.text,
-                m.created_at AS createdAt, u.name, u.avatar, u.color
+                m.created_at AS createdAt, m.edited_at AS editedAt, m.deleted,
+                m.reply_to AS replyTo, u.name, u.avatar, u.color
          FROM messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?`
       )
       .get(id);
+    if (!row) return null;
+    const pinned = !!db.prepare("SELECT 1 FROM pins WHERE message_id = ?").get(id);
+    return {
+      id: row.id,
+      channelId: row.channelId,
+      userId: row.userId,
+      text: row.deleted ? "" : row.text,
+      createdAt: row.createdAt,
+      editedAt: row.editedAt || null,
+      deleted: !!row.deleted,
+      name: row.name,
+      avatar: row.avatar,
+      color: row.color,
+      reply: replyOf(row.replyTo),
+      attachments: row.deleted ? [] : attachmentsOf(id),
+      reactions: reactionsOf(id, viewerId),
+      pinned,
+    };
+  };
 
   const canSeeChannel = (userId, channelId) =>
     !!db
@@ -417,15 +485,17 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       return reply.code(403).send({ error: "forbidden" });
     const limit = Math.min(Number(req.query.limit) || 50, 100);
     const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
-    const rows = db
-      .prepare(
-        `SELECT m.id, m.channel_id AS channelId, m.user_id AS userId, m.text,
-                m.created_at AS createdAt, u.name, u.avatar, u.color
-         FROM messages m JOIN users u ON u.id = m.user_id
-         WHERE m.channel_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?`
-      )
-      .all(channelId, before, limit);
-    return { messages: rows.reverse() };
+    const after = Number(req.query.after) || 0;
+    const rows = after
+      ? db
+          .prepare("SELECT id FROM messages WHERE channel_id = ? AND id > ? ORDER BY id ASC LIMIT ?")
+          .all(channelId, after, limit)
+      : db
+          .prepare("SELECT id FROM messages WHERE channel_id = ? AND id < ? ORDER BY id DESC LIMIT ?")
+          .all(channelId, before, limit);
+    const ids = rows.map((r) => r.id);
+    if (!after) ids.reverse();
+    return { messages: ids.map((id) => messageRow(id, req.user.id)) };
   });
 
   app.post("/api/channels/:id/messages", async (req, reply) => {
@@ -436,16 +506,211 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     const spaceId = spaceOfChannel(channelId);
     if (!can(spaceId, req.user.id, "send_messages"))
       return reply.code(403).send({ error: "forbidden" });
+    const body = req.body || {};
+    const text = String(body.text || "").trim();
+    const files = Array.isArray(body.attachments) ? body.attachments.slice(0, 10) : [];
+    if (!text && !files.length) return reply.code(400).send({ error: "empty" });
+    if (text.length > 4000) return reply.code(400).send({ error: "too_long" });
+
+    let replyTo = null;
+    if (body.replyTo) {
+      const target = db
+        .prepare("SELECT id, channel_id AS channelId FROM messages WHERE id = ?")
+        .get(Number(body.replyTo));
+      if (target && target.channelId === channelId) replyTo = target.id;
+    }
+
+    const now = Date.now();
+    const info = db
+      .prepare(
+        "INSERT INTO messages (channel_id, user_id, text, created_at, reply_to) VALUES (?, ?, ?, ?, ?)"
+      )
+      .run(channelId, req.user.id, text, now, replyTo);
+    const messageId = Number(info.lastInsertRowid);
+
+    const insFile = db.prepare(
+      "INSERT INTO attachments (message_id, url, name, mime, size, width, height) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const file of files) {
+      const url = String(file.url || "");
+      if (!/^\/api\/files\/[a-z0-9]+\.[a-z0-9]+$/i.test(url)) continue;
+      insFile.run(
+        messageId,
+        url,
+        String(file.name || "файл").slice(0, 120),
+        String(file.mime || "application/octet-stream").slice(0, 80),
+        Number(file.size) || 0,
+        Number(file.width) || null,
+        Number(file.height) || null
+      );
+    }
+
+    const message = messageRow(messageId, req.user.id);
+    hub.broadcastSpace(spaceId, { t: "message", message });
+    return { message };
+  });
+
+  app.patch("/api/messages/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(Number(req.params.id));
+    if (!row || row.deleted) return reply.code(404).send({ error: "not_found" });
+    const spaceId = spaceOfChannel(row.channel_id);
+    const own = row.user_id === req.user.id;
+    if (!own && !can(spaceId, req.user.id, "manage_messages"))
+      return reply.code(403).send({ error: "forbidden" });
     const text = String((req.body || {}).text || "").trim();
     if (!text) return reply.code(400).send({ error: "empty" });
     if (text.length > 4000) return reply.code(400).send({ error: "too_long" });
-
-    const info = db
-      .prepare("INSERT INTO messages (channel_id, user_id, text, created_at) VALUES (?, ?, ?, ?)")
-      .run(channelId, req.user.id, text, Date.now());
-    const message = messageRow(Number(info.lastInsertRowid));
-    hub.broadcastSpace(spaceId, { t: "message", message });
+    db.prepare("UPDATE messages SET text = ?, edited_at = ? WHERE id = ?").run(text, Date.now(), row.id);
+    const message = messageRow(row.id, req.user.id);
+    hub.broadcastSpace(spaceId, { t: "message.update", message });
     return { message };
+  });
+
+  app.delete("/api/messages/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(Number(req.params.id));
+    if (!row) return reply.code(404).send({ error: "not_found" });
+    const spaceId = spaceOfChannel(row.channel_id);
+    const own = row.user_id === req.user.id;
+    if (!own && !can(spaceId, req.user.id, "manage_messages"))
+      return reply.code(403).send({ error: "forbidden" });
+    db.prepare("UPDATE messages SET deleted = 1, text = '' WHERE id = ?").run(row.id);
+    db.prepare("DELETE FROM attachments WHERE message_id = ?").run(row.id);
+    db.prepare("DELETE FROM reactions WHERE message_id = ?").run(row.id);
+    db.prepare("DELETE FROM pins WHERE message_id = ?").run(row.id);
+    hub.broadcastSpace(spaceId, {
+      t: "message.delete",
+      messageId: row.id,
+      channelId: row.channel_id,
+    });
+    return { ok: true };
+  });
+
+  app.put("/api/messages/:id/reactions", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(Number(req.params.id));
+    if (!row || row.deleted) return reply.code(404).send({ error: "not_found" });
+    const spaceId = spaceOfChannel(row.channel_id);
+    if (!canSeeChannel(req.user.id, row.channel_id))
+      return reply.code(403).send({ error: "forbidden" });
+    const emoji = String((req.body || {}).emoji || "").trim();
+    if (!emoji || [...emoji].length > 8) return reply.code(400).send({ error: "bad_emoji" });
+    const existing = db
+      .prepare("SELECT 1 FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?")
+      .get(row.id, req.user.id, emoji);
+    if (existing)
+      db.prepare("DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?").run(
+        row.id,
+        req.user.id,
+        emoji
+      );
+    else
+      db.prepare(
+        "INSERT INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)"
+      ).run(row.id, req.user.id, emoji, Date.now());
+    const reactions = reactionsOf(row.id, req.user.id);
+    hub.broadcastSpace(spaceId, { t: "message.reactions", messageId: row.id, reactions });
+    return { reactions };
+  });
+
+  app.get("/api/channels/:id/pins", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const channelId = Number(req.params.id);
+    if (!canSeeChannel(req.user.id, channelId))
+      return reply.code(403).send({ error: "forbidden" });
+    const ids = db
+      .prepare("SELECT message_id AS id FROM pins WHERE channel_id = ? ORDER BY created_at DESC")
+      .all(channelId)
+      .map((r) => r.id);
+    return { messages: ids.map((id) => messageRow(id, req.user.id)).filter(Boolean) };
+  });
+
+  app.put("/api/messages/:id/pin", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(Number(req.params.id));
+    if (!row || row.deleted) return reply.code(404).send({ error: "not_found" });
+    const spaceId = spaceOfChannel(row.channel_id);
+    if (!can(spaceId, req.user.id, "manage_messages"))
+      return reply.code(403).send({ error: "forbidden" });
+    const pinned = !!(req.body || {}).pinned;
+    if (pinned)
+      db.prepare(
+        "INSERT OR REPLACE INTO pins (message_id, channel_id, pinned_by, created_at) VALUES (?, ?, ?, ?)"
+      ).run(row.id, row.channel_id, req.user.id, Date.now());
+    else db.prepare("DELETE FROM pins WHERE message_id = ?").run(row.id);
+    hub.broadcastSpace(spaceId, { t: "message.pin", messageId: row.id, channelId: row.channel_id, pinned });
+    return { pinned };
+  });
+
+  app.get("/api/spaces/:id/search", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!baseRole(spaceId, req.user.id)) return reply.code(403).send({ error: "forbidden" });
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return { messages: [] };
+    const channelId = Number(req.query.channelId) || 0;
+    const rows = db
+      .prepare(
+        `SELECT m.id FROM messages m JOIN channels c ON c.id = m.channel_id
+         WHERE c.space_id = ? AND m.deleted = 0 AND m.text LIKE ?
+           AND (? = 0 OR m.channel_id = ?)
+         ORDER BY m.id DESC LIMIT 40`
+      )
+      .all(spaceId, `%${q.replace(/[%_]/g, (c) => "\\" + c)}%`, channelId, channelId);
+    return { messages: rows.map((r) => messageRow(r.id, req.user.id)) };
+  });
+
+  /* ---------- files ---------- */
+
+  const EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "audio/mpeg": "mp3",
+    "audio/ogg": "ogg",
+    "application/pdf": "pdf",
+    "text/plain": "txt",
+    "application/zip": "zip",
+  };
+
+  app.post("/api/upload", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const file = await req.file();
+    if (!file) return reply.code(400).send({ error: "no_file" });
+    const mime = String(file.mimetype || "application/octet-stream");
+    const ext = EXT[mime];
+    if (!ext) return reply.code(415).send({ error: "bad_type" });
+    const buffer = await file.toBuffer();
+    if (buffer.length > 12 * 1024 * 1024) return reply.code(413).send({ error: "too_big" });
+    const name = `${randomBytes(12).toString("hex")}.${ext}`;
+    writeFileSync(join(filesDir, name), buffer);
+    return {
+      url: `/api/files/${name}`,
+      name: String(file.filename || "файл").slice(0, 120),
+      mime,
+      size: buffer.length,
+      width: Number(req.query.w) || null,
+      height: Number(req.query.h) || null,
+    };
+  });
+
+  app.get("/api/files/:name", async (req, reply) => {
+    const token = req.query.token || (req.headers.authorization || "").replace(/^Bearer /, "");
+    if (!userByToken(token)) return reply.code(401).send({ error: "unauthorized" });
+    const name = String(req.params.name || "");
+    if (!/^[a-z0-9]+\.[a-z0-9]+$/i.test(name)) return reply.code(400).send({ error: "bad_name" });
+    const path = join(filesDir, name);
+    if (!existsSync(path)) return reply.code(404).send({ error: "not_found" });
+    const ext = name.split(".").pop().toLowerCase();
+    const type =
+      Object.entries(EXT).find(([, value]) => value === ext)?.[0] || "application/octet-stream";
+    reply.header("content-type", type);
+    reply.header("cache-control", "private, max-age=31536000, immutable");
+    return reply.send(createReadStream(path));
   });
 
   /* ---------- space ---------- */

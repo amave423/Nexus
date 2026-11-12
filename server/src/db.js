@@ -74,6 +74,33 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, id DESC);
 
+CREATE TABLE IF NOT EXISTS attachments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  url        TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  size       INTEGER NOT NULL DEFAULT 0,
+  width      INTEGER,
+  height     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
+
+CREATE TABLE IF NOT EXISTS reactions (
+  message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji      TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (message_id, user_id, emoji)
+);
+
+CREATE TABLE IF NOT EXISTS pins (
+  message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  pinned_by  INTEGER REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS invites (
   code       TEXT PRIMARY KEY,
   space_id   INTEGER NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
@@ -92,6 +119,9 @@ const COLUMNS = [
   ["spaces", "description", "TEXT NOT NULL DEFAULT ''"],
   ["invites", "expires_at", "INTEGER"],
   ["invites", "revoked", "INTEGER NOT NULL DEFAULT 0"],
+  ["messages", "reply_to", "INTEGER"],
+  ["messages", "edited_at", "INTEGER"],
+  ["messages", "deleted", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 function migrate(db) {
