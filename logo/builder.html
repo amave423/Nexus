@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>NEXUS · конструктор знака</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{--ink:#08080a;--card:#14141b;--line:rgba(255,255,255,.08);--dim:#8f8f9d;--txt:#e8e8ec;--acid:#c8ff3d}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--ink);color:var(--txt);font-family:"Space Grotesk",system-ui,sans-serif;padding:28px clamp(14px,3vw,44px) 64px;display:grid;gap:22px}
+  .head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  h1{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--dim);font-weight:500}
+  .hint{font-size:12px;color:var(--dim)}
+  .layout{display:grid;grid-template-columns:minmax(280px,400px) minmax(0,1fr);gap:22px;align-items:start}
+  @media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+  .stage{position:sticky;top:22px;background:radial-gradient(120% 90% at 50% 0%,#1a1a22,#0a0a0e 72%);border:1px solid var(--line);border-radius:24px;padding:26px;display:grid;gap:20px;justify-items:center}
+  .board{width:100%;max-width:320px;display:grid;place-items:center}
+  .strip{display:flex;gap:16px;align-items:flex-end;justify-content:center;width:100%;padding-top:14px;border-top:1px solid var(--line)}
+  .strip>div{display:grid;gap:6px;justify-items:center}
+  .strip span{font-family:"JetBrains Mono",monospace;font-size:8.5px;color:var(--dim);letter-spacing:.1em}
+  .panel{display:grid;gap:16px}
+  .block{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:grid;gap:14px}
+  .block h2{font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);font-weight:500;display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .block h2 em{font-style:normal;color:var(--acid);letter-spacing:.1em}
+  .presets{display:flex;flex-wrap:wrap;gap:8px}
+  .preset{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt);border-radius:10px;padding:7px 12px;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s;display:flex;align-items:center;gap:8px}
+  .preset:hover{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.2)}
+  .preset i{width:16px;height:16px;border-radius:5px;display:block;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .lab{font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);width:84px;flex:0 0 auto}
+  input[type=range]{flex:1;min-width:120px;accent-color:var(--acid);height:4px;cursor:pointer}
+  .val{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--txt);width:46px;text-align:right;flex:0 0 auto}
+  .dial{width:62px;height:62px;border-radius:50%;border:1px solid var(--line);position:relative;background:rgba(255,255,255,.03);flex:0 0 auto}
+  .dial b{position:absolute;left:50%;top:50%;width:2px;height:25px;background:var(--acid);border-radius:2px;transform-origin:50% 100%;margin-left:-1px;margin-top:-25px;box-shadow:0 0 8px rgba(200,255,61,.7)}
+  .dial i{position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:var(--acid);transform:translate(-50%,-50%)}
+  input[type=color]{width:44px;height:34px;border-radius:10px;border:1px solid var(--line);background:transparent;padding:2px;cursor:pointer}
+  input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  input[type=color]::-webkit-color-swatch{border:none;border-radius:8px}
+  .swatches{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .bar{height:34px;border-radius:10px;flex:1;min-width:90px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+  .codes{display:flex;gap:8px;flex-wrap:wrap;font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--dim)}
+  .mini{width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--txt);cursor:pointer;font-family:"JetBrains Mono",monospace;font-size:13px;line-height:1;display:grid;place-items:center;transition:.15s}
+  .mini:hover{background:rgba(255,255,255,.12)}
+  .mini:disabled{opacity:.3;cursor:default}
+  .check{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#b8b8c4;cursor:pointer}
+  .check input{width:16px;height:16px;accent-color:var(--acid);cursor:pointer}
+  .out{background:#0c0c11;border:1px solid var(--line);border-radius:18px;padding:16px 18px;display:grid;gap:12px}
+  .out pre{font-family:"JetBrains Mono",monospace;font-size:11.5px;line-height:1.7;color:#b9c0ca;white-space:pre-wrap;word-break:break-word;margin:0}
+  .copy{justify-self:start;border:1px solid rgba(200,255,61,.35);background:rgba(200,255,61,.12);color:var(--acid);border-radius:10px;padding:8px 16px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;transition:.15s}
+  .copy:hover{background:rgba(200,255,61,.2)}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1>Nexus · конструктор знака</h1>
+  <span class="hint">Угол один на весь знак, цвета у каждой плашки свои. Скажи коды — соберу финал.</span>
+</div>
+
+<div class="layout">
+  <div class="stage">
+    <div class="board" id="board"></div>
+    <div class="strip" id="strip"></div>
+  </div>
+
+  <div class="panel">
+
+    <div class="block">
+      <h2>Готовые наборы</h2>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="block">
+      <h2>Направление <em>общее</em></h2>
+      <div class="row">
+        <div class="dial"><b id="needle"></b><i></i></div>
+        <input type="range" id="angle" min="0" max="359" value="90" />
+        <span class="val" id="angleVal">90°</span>
+      </div>
+    </div>
+
+    <div class="block" data-part="L">
+      <h2>Левая стойка <em>L</em></h2>
+      <div class="row"><div class="bar" data-bar></div></div>
+      <div class="swatches" data-swatches></div>
+      <div class="row"><span class="lab" style="width:auto">стопы</span><button class="mini" data-add>+</button><button class="mini" data-del>−</button><button class="mini" data-all title="применить к другим плашкам" style="width:auto;padding:0 9px;font-size:10px;letter-spacing:.1em">всем</button><span class="codes" data-codes></span></div>
+    </div>
+
+    <div class="block" data-part="D">
+      <h2>Диагональ <em>D</em></h2>
+      <div class="row"><div class="bar" data-bar></div></div>
+      <div class="swatches" data-swatches></div>
+      <div class="row"><span class="lab" style="width:auto">стопы</span><button class="mini" data-add>+</button><button class="mini" data-del>−</button><button class="mini" data-all title="применить к другим плашкам" style="width:auto;padding:0 9px;font-size:10px;letter-spacing:.1em">всем</button><span class="codes" data-codes></span></div>
+    </div>
+
+    <div class="block" data-part="R">
+      <h2>Правая стойка <em>R</em></h2>
+      <div class="row"><div class="bar" data-bar></div></div>
+      <div class="swatches" data-swatches></div>
+      <div class="row"><span class="lab" style="width:auto">стопы</span><button class="mini" data-add>+</button><button class="mini" data-del>−</button><button class="mini" data-all title="применить к другим плашкам" style="width:auto;padding:0 9px;font-size:10px;letter-spacing:.1em">всем</button><span class="codes" data-codes></span></div>
+    </div>
+
+    <div class="block">
+      <h2>Фон и тень</h2>
+      <div class="row">
+        <span class="lab">фон</span>
+        <input type="color" id="bgColor" value="#08080a" />
+        <label class="check"><input type="checkbox" id="bgOn" checked /> подложка</label>
+      </div>
+      <div class="row">
+        <span class="lab">тень</span>
+        <input type="range" id="shadowOff" min="0" max="12" step="0.5" value="5" style="max-width:150px" />
+        <input type="range" id="shadowOp" min="0" max="100" value="50" style="max-width:150px" />
+        <label class="check"><input type="checkbox" id="shadowOn" checked /> есть</label>
+      </div>
+    </div>
+
+    <div class="out">
+      <h2 style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)">Код готового знака</h2>
+      <pre id="code"></pre>
+      <button class="copy" id="copy">Скопировать SVG</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const P = {
+  L: 'M18 82V18H32V82Z',
+  D: 'M36 18H50L64 82H50Z',
+  R: 'M68 18H82V82H68Z',
+};
+const NAMES = { L: 'Левая', D: 'Диагональ', R: 'Правая' };
+
+const PRESETS = [
+  { name: 'Хром',     all: ['#eef3f8', '#ffffff', '#8b949f', '#dbe2ea'] },
+  { name: 'Сталь',    all: ['#dfe5ec', '#f7fafc', '#767e89', '#c3cbd5'] },
+  { name: 'Алюминий', all: ['#f2f5f9', '#ffffff', '#a8b1bc', '#dde4eb'] },
+  { name: 'Графит',   all: ['#5a616a', '#8d96a1', '#23272d', '#6f7780'] },
+  { name: 'Титан',    all: ['#efe0cb', '#fff6e8', '#8f6f4c', '#d8c4a8'] },
+  { name: 'Латунь',   all: ['#f7e6b8', '#fffbe8', '#a08234', '#e4d09a'] },
+  { name: 'Медь',     all: ['#f6c9a8', '#ffe8d6', '#a35a2e', '#e0a883'] },
+  { name: 'Акцент',   all: ['#e6ff9a', '#f8ffdd', '#79a01f', '#cdff5e'] },
+  {
+    name: 'Три цвета',
+    L: ['#d8bcf2', '#f6edff', '#6a3a9c', '#b98fe0'],
+    D: ['#a8f2dc', '#e9fffa', '#2f5fa0', '#7fd8c4'],
+    R: ['#ffd08a', '#fff4e2', '#c22b1e', '#ff9e6b'],
+  },
+];
+
+const state = {
+  angle: 90,
+  bg: '#08080a',
+  bgOn: true,
+  shadowOn: true,
+  shadowOff: 5,
+  shadowOp: 50,
+  parts: {
+    L: ['#eef3f8', '#ffffff', '#8b949f', '#dbe2ea'],
+    D: ['#eef3f8', '#ffffff', '#8b949f', '#dbe2ea'],
+    R: ['#eef3f8', '#ffffff', '#8b949f', '#dbe2ea'],
+  },
+};
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+function gradCoords(angle) {
+  const a = angle * Math.PI / 180;
+  const dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
+  return {
+    x1: (0.5 - dx).toFixed(4), y1: (0.5 - dy).toFixed(4),
+    x2: (0.5 + dx).toFixed(4), y2: (0.5 + dy).toFixed(4),
+  };
+}
+
+function defsFor(uid) {
+  const c = gradCoords(state.angle);
+  return ['L', 'D', 'R'].map((k) => {
+    const stops = state.parts[k];
+    const body = stops.map((col, i) =>
+      `<stop offset="${(i / (stops.length - 1)).toFixed(3)}" stop-color="${col}"/>`
+    ).join('');
+    return `<linearGradient id="g${k}${uid}" x1="${c.x1}" y1="${c.y1}" x2="${c.x2}" y2="${c.y2}">${body}</linearGradient>`;
+  }).join('');
+}
+
+function buildSVG(uid, size, withBg) {
+  const parts = ['L', 'D', 'R'];
+  const shadow = state.shadowOn
+    ? `<g opacity="${(state.shadowOp / 100).toFixed(2)}" transform="translate(${state.shadowOff} ${state.shadowOff})" fill="#000">${
+        parts.map((k) => `<path d="${P[k]}"/>`).join('')
+      }</g>`
+    : '';
+  const bg = withBg && state.bgOn ? `<rect width="100" height="100" rx="22" fill="${state.bg}"/>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}">`
+    + `<defs>${defsFor(uid)}</defs>${bg}${shadow}`
+    + parts.map((k) => `<path d="${P[k]}" fill="url(#g${k}${uid})"/>`).join('')
+    + `</svg>`;
+}
+
+function cssGrad(stops) {
+  return `linear-gradient(${state.angle + 90}deg, ${stops.join(', ')})`;
+}
+
+function mix(a, b, t) {
+  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const A = p(a), B = p(b);
+  return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+
+function buildPart(block) {
+  const k = block.dataset.part;
+  const stops = state.parts[k];
+  $('[data-swatches]', block).innerHTML = stops.map((c, i) =>
+    `<input type="color" value="${c}" data-stop="${i}" title="стоп ${i + 1}" />`
+  ).join('');
+  $('[data-bar]', block).style.background = cssGrad(stops);
+  $('[data-del]', block).disabled = stops.length <= 2;
+  $('[data-add]', block).disabled = stops.length >= 6;
+  $('[data-codes]', block).innerHTML = stops.map((c) => `<span>${c.toUpperCase()}</span>`).join('<span>·</span>');
+}
+
+function buildAll() {
+  $$('.block[data-part]').forEach(buildPart);
+  $('#angle').value = state.angle;
+  $('#angleVal').textContent = state.angle + '°';
+  $('#needle').style.transform = `rotate(${state.angle - 90}deg)`;
+}
+
+function render() {
+  $('#board').innerHTML = buildSVG('a', 320, false);
+  $('#strip').innerHTML = [48, 32, 24, 16].map((s) =>
+    `<div>${buildSVG('s' + s, s, true)}<span>${s}</span></div>`
+  ).join('');
+  $('#code').textContent = serialize();
+  buildAll();
+}
+
+function serialize() {
+  const lines = ['ЗНАК  вариант 02 «сдвиг»', '', `УГОЛ  ${state.angle}°  (один на все плашки)`, ''];
+  ['L', 'D', 'R'].forEach((k) => {
+    lines.push(`${NAMES[k].padEnd(10)} ${state.parts[k].join('  ')}`);
+  });
+  lines.push('', `ФОН   ${state.bgOn ? state.bg.toUpperCase() : 'прозрачный'}`);
+  lines.push(`ТЕНЬ  ${state.shadowOn ? state.shadowOff + ' px, ' + state.shadowOp + '%' : 'нет'}`);
+  return lines.join('\n');
+}
+
+$('#presets').innerHTML = PRESETS.map((p, i) =>
+  `<button class="preset" data-preset="${i}"><i style="background:linear-gradient(160deg,${(p.all || p.D).join(',')})"></i>${p.name}</button>`
+).join('');
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'angle') { state.angle = Number(e.target.value); render(); return; }
+  const block = e.target.closest('.block[data-part]');
+  if (block && e.target.matches('[data-stop]')) {
+    state.parts[block.dataset.part][Number(e.target.dataset.stop)] = e.target.value;
+    render();
+    return;
+  }
+  if (e.target.id === 'bgColor') { state.bg = e.target.value; render(); }
+  if (e.target.id === 'bgOn') { state.bgOn = e.target.checked; render(); }
+  if (e.target.id === 'shadowOn') { state.shadowOn = e.target.checked; render(); }
+  if (e.target.id === 'shadowOff') { state.shadowOff = Number(e.target.value); render(); }
+  if (e.target.id === 'shadowOp') { state.shadowOp = Number(e.target.value); render(); }
+});
+
+document.addEventListener('click', (e) => {
+  const preset = e.target.closest('[data-preset]');
+  if (preset) {
+    const p = PRESETS[Number(preset.dataset.preset)];
+    ['L', 'D', 'R'].forEach((k) => { state.parts[k] = [...(p.all || p[k])]; });
+    render();
+    return;
+  }
+  const block = e.target.closest('.block[data-part]');
+  if (block && e.target.matches('[data-all]')) {
+    const src = state.parts[block.dataset.part];
+    ['L', 'D', 'R'].forEach((k) => { state.parts[k] = [...src]; });
+    render();
+    return;
+  }
+  if (block && (e.target.matches('[data-add]') || e.target.matches('[data-del]'))) {
+    const k = block.dataset.part;
+    const stops = state.parts[k];
+    if (e.target.matches('[data-add]') && stops.length < 6) {
+      stops.splice(stops.length - 1, 0, mix(stops[stops.length - 2], stops[stops.length - 1], 0.5));
+    }
+    if (e.target.matches('[data-del]') && stops.length > 2) stops.pop();
+    render();
+    return;
+  }
+  if (e.target.id === 'copy') {
+    navigator.clipboard.writeText(buildSVG('final', 256, true));
+    e.target.textContent = 'Скопировано';
+    setTimeout(() => (e.target.textContent = 'Скопировать SVG'), 1400);
+  }
+});
+
+render();
+</script>
+</body>
+</html>

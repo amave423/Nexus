@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" color="#c8ff3d" role="img" aria-label="Nexus">
+  <path d="M44.91 13.57A22.5 22.5 0 0 1 44.91 50.43" stroke="currentColor" stroke-width="4.4" stroke-linecap="round"/>
+  <path d="M19.09 50.43A22.5 22.5 0 0 1 19.09 13.57" stroke="currentColor" stroke-width="4.4" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="8.5" fill="currentColor"/>
+</svg>
