@@ -1,0 +1,10 @@
+node_modules/
+app/dist/
+app/out/
+app/release/
+app/build.log
+app/build2.log
+server/data/
+*.log
+icon-*.png
+gitlog.txt
