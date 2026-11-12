@@ -1,6 +1,5 @@
 import Fastify from "fastify";
 import websocket from "@fastify/websocket";
-import multipart from "@fastify/multipart";
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
@@ -47,11 +46,16 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   app.decorate("voice", voice);
 
   app.register(websocket);
-  app.register(multipart, { limits: { fileSize: 12 * 1024 * 1024, files: 1 } });
+  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_req, body, done) =>
+    done(null, body)
+  );
 
   app.addHook("onRequest", async (req, reply) => {
     reply.header("access-control-allow-origin", "*");
-    reply.header("access-control-allow-headers", "content-type, authorization");
+    reply.header(
+      "access-control-allow-headers",
+      "content-type, authorization, x-file-type, x-file-name"
+    );
     reply.header("access-control-allow-methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
     reply.header("access-control-max-age", "86400");
     if (req.method === "OPTIONS") return reply.code(204).send();
@@ -679,18 +683,23 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
 
   app.post("/api/upload", async (req, reply) => {
     if (!auth(req, reply)) return;
-    const file = await req.file();
-    if (!file) return reply.code(400).send({ error: "no_file" });
-    const mime = String(file.mimetype || "application/octet-stream");
+    const buffer = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buffer || !buffer.length) return reply.code(400).send({ error: "no_file" });
+    const mime = String(req.headers["x-file-type"] || "application/octet-stream");
     const ext = EXT[mime];
     if (!ext) return reply.code(415).send({ error: "bad_type" });
-    const buffer = await file.toBuffer();
     if (buffer.length > 12 * 1024 * 1024) return reply.code(413).send({ error: "too_big" });
     const name = `${randomBytes(12).toString("hex")}.${ext}`;
     writeFileSync(join(filesDir, name), buffer);
+    let original = "файл";
+    try {
+      original = decodeURIComponent(String(req.headers["x-file-name"] || "файл"));
+    } catch {
+      /* имя не в utf-8 — оставим запасное */
+    }
     return {
       url: `/api/files/${name}`,
-      name: String(file.filename || "файл").slice(0, 120),
+      name: original.slice(0, 120),
       mime,
       size: buffer.length,
       width: Number(req.query.w) || null,

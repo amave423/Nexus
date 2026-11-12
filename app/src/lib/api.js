@@ -41,12 +41,15 @@ export function fileUrl(url) {
 
 export async function upload(file, size = {}) {
   const query = size.width ? `?w=${size.width}&h=${size.height}` : "";
-  const form = new FormData();
-  form.append("file", file, file.name || "файл");
   const res = await fetch(`${SERVER}/api/upload${query}`, {
     method: "POST",
-    headers: token ? { authorization: `Bearer ${token}` } : {},
-    body: form,
+    headers: {
+      "content-type": "application/octet-stream",
+      "x-file-type": file.type || "application/octet-stream",
+      "x-file-name": encodeURIComponent(file.name || "файл"),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: file,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

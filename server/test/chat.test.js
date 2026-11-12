@@ -223,24 +223,21 @@ test("чат: поиск находит по тексту и не отдаёт �
 
 test("чат: вложение загружается, прикрепляется и отдаётся по токену", async () => {
   const { app, owner, guest, channel, uploadDir } = await setup();
-  const boundary = "----nexusboundary";
   const png = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
     "base64"
   );
-  const body = Buffer.concat([
-    Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pixel.png"\r\nContent-Type: image/png\r\n\r\n`
-    ),
-    png,
-    Buffer.from(`\r\n--${boundary}--\r\n`),
-  ]);
 
   const upload = await app.inject({
     method: "POST",
     url: "/api/upload?w=1&h=1",
-    headers: { ...auth(owner.token), "content-type": `multipart/form-data; boundary=${boundary}` },
-    payload: body,
+    headers: {
+      ...auth(owner.token),
+      "content-type": "application/octet-stream",
+      "x-file-type": "image/png",
+      "x-file-name": encodeURIComponent("pixel.png"),
+    },
+    payload: png,
   });
   assert.equal(upload.statusCode, 200);
   const file = upload.json();
