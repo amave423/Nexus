@@ -1,0 +1,75 @@
+const params = new URLSearchParams(location.search);
+
+export const SERVER = (
+  params.get("server") ||
+  localStorage.getItem("nexus.server") ||
+  "https://fiit.37.235.241.23.sslip.io"
+).replace(/\/$/, "");
+
+let token = localStorage.getItem("nexus.token") || null;
+
+export const getToken = () => token;
+
+export function setToken(value) {
+  token = value;
+  if (value) localStorage.setItem("nexus.token", value);
+  else localStorage.removeItem("nexus.token");
+}
+
+export async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(SERVER + path, {
+    method,
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `http_${res.status}`);
+    err.code = data.error;
+    throw err;
+  }
+  return data;
+}
+
+export function connect(onEvent, onStatus) {
+  const url = SERVER.replace(/^http/, "ws") + "/ws?token=" + token;
+  let socket = null;
+  let closed = false;
+  let retry = 0;
+
+  const open = () => {
+    socket = new WebSocket(url);
+    socket.onopen = () => {
+      retry = 0;
+      onStatus?.("online");
+    };
+    socket.onmessage = (event) => {
+      try {
+        onEvent(JSON.parse(event.data));
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+    socket.onclose = () => {
+      onStatus?.("offline");
+      if (closed) return;
+      retry = Math.min(retry + 1, 6);
+      setTimeout(open, 400 * retry);
+    };
+  };
+
+  open();
+
+  return {
+    send(payload) {
+      if (socket && socket.readyState === 1) socket.send(JSON.stringify(payload));
+    },
+    close() {
+      closed = true;
+      socket?.close();
+    },
+  };
+}
