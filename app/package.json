@@ -1,6 +1,6 @@
 {
   "name": "nexus-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Nexus — закрытый мессенджер для своих",
   "author": "Nexus",
@@ -32,6 +32,12 @@
     "files": [
       "dist/**/*",
       "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "win": {
       "target": [

@@ -139,6 +139,76 @@ test("голос: два клиента слышат друг друга в ка
   await contextB.close();
 });
 
+test("голос: демонстрация экрана доходит до второго участника", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await pageA.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 640;
+      canvas.height = 360;
+      const ctx = canvas.getContext("2d");
+      let hue = 0;
+      setInterval(() => {
+        hue = (hue + 6) % 360;
+        ctx.fillStyle = `hsl(${hue} 80% 50%)`;
+        ctx.fillRect(0, 0, 640, 360);
+      }, 100);
+      return canvas.captureStream(15);
+    };
+  });
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageB.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+
+  await pageA.getByTitle("Демонстрация экрана").click();
+  await pageB.locator(".stream-view").waitFor({ timeout: 20000 });
+
+  const screenTracks = await pageB.evaluate(() =>
+    [...document.querySelectorAll(".stream-feed video")].map((node) => ({
+      tracks: node.srcObject ? node.srcObject.getVideoTracks().length : 0,
+      live: node.srcObject ? node.srcObject.getVideoTracks().every((tr) => tr.readyState === "live") : false,
+    }))
+  );
+  assert.ok(
+    screenTracks.some((item) => item.tracks === 1 && item.live),
+    "у Миры играет демонстрация Артёма"
+  );
+
+  const deadline = Date.now() + 20000;
+  let screenBytes = 0;
+  while (Date.now() < deadline) {
+    const stats = await audioBytes(pageB);
+    const screen = stats.find((item) => item.kind === "video" && item.source === "screen");
+    if (screen && screen.bytes > 0) {
+      screenBytes = screen.bytes;
+      break;
+    }
+    await pageB.waitForTimeout(500);
+  }
+  assert.ok(screenBytes > 0, "пакеты демонстрации дошли до Миры");
+
+  assert.equal(await pageB.getByText("На весь экран").count(), 1, "есть кнопка полного экрана");
+  assert.equal(await pageB.locator(".stream-badge").count(), 1, "виден бейдж LIVE");
+
+  await pageA.getByTitle("Демонстрация экрана").click();
+  await pageB.locator(".stream-view").waitFor({ state: "detached", timeout: 20000 });
+  assert.equal(await pageB.locator(".seat").count(), 2, "после остановки стрима комната на месте");
+
+  await contextA.close();
+  await contextB.close();
+});
+
 test("голос: в текстовый канал не входит, комната не открывается", async (t) => {
   await startServer();
   const browser = await chromium.launch({ args: FAKE_MEDIA });

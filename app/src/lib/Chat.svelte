@@ -63,6 +63,9 @@
   };
   let vs = emptyVoice;
   let unsubscribe = null;
+  let unsubscribePrefs = null;
+
+  const desktop = window.nexus?.desktop || null;
 
   const time = (ts) =>
     new Date(ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
@@ -74,6 +77,21 @@
     const back = textList[0];
     if (back) openChannel(back);
   }
+  let voiceSig = "";
+  $: {
+    const sig = `${vs.channelId}|${vs.muted}|${vs.deafened}`;
+    if (desktop && sig !== voiceSig) {
+      voiceSig = sig;
+      desktop.setVoiceState({
+        inChannel: !!vs.channelId,
+        channelName: voiceList.find((c) => c.id === vs.channelId)?.name || "",
+        muted: vs.muted,
+        deafened: vs.deafened,
+      });
+    }
+  }
+  $: if (desktop) desktop.setBadge(unread.size);
+
   $: onlineMembers = members.filter((m) => online.has(m.id));
   $: offlineMembers = members.filter((m) => !online.has(m.id));
 
@@ -139,14 +157,26 @@
     const elsewhere = !current || current.id !== message.channelId || document.hidden;
     if (!elsewhere) return;
     if (pref.notifSound) playSound(pref.sound, pref.volume);
-    toast({
-      name: message.name,
-      text: message.text,
-      color: message.color,
-      avatar: message.avatar,
-    });
-    if (pref.notifDesktop && "Notification" in window && Notification.permission === "granted") {
-      new Notification(message.name, { body: message.text });
+    if (desktop && document.hidden) {
+      desktop.notify({
+        name: message.name,
+        text: message.text,
+        color: message.color,
+        avatar: message.avatar,
+        channelId: message.channelId,
+        channel: channels.find((c) => c.id === message.channelId)?.name || "",
+        accent: pref.accent,
+      });
+    } else {
+      toast({
+        name: message.name,
+        text: message.text,
+        color: message.color,
+        avatar: message.avatar,
+      });
+      if (!desktop && pref.notifDesktop && "Notification" in window && Notification.permission === "granted") {
+        new Notification(message.name, { body: message.text });
+      }
     }
     if (current?.id !== message.channelId) {
       unread.add(message.channelId);
@@ -297,6 +327,15 @@
     return null;
   }
 
+  function runAction(action) {
+    if (action === "mic") voice?.toggleMic();
+    if (action === "deaf") voice?.toggleDeafen();
+    if (action === "cam") voice?.toggleCamera().catch(() => {});
+    if (action === "screen") voice?.toggleScreen().catch(() => {});
+    if (action === "leave") voice?.leave();
+    if (action === "search") inputEl?.focus();
+  }
+
   function onHotkey(e) {
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") {
@@ -314,12 +353,7 @@
     const action = hotkeyAction(parts.join("+"));
     if (!action) return;
     e.preventDefault();
-    if (action === "mic") voice?.toggleMic();
-    if (action === "deaf") voice?.toggleDeafen();
-    if (action === "cam") voice?.toggleCamera().catch(() => {});
-    if (action === "screen") voice?.toggleScreen().catch(() => {});
-    if (action === "leave") voice?.leave();
-    if (action === "search") inputEl?.focus();
+    runAction(action);
   }
 
   onMount(async () => {
@@ -336,8 +370,18 @@
     unsubscribe = voice.store.subscribe((value) => (vs = value));
     window.__nexusVoice = voice;
     window.addEventListener("keydown", onHotkey);
-    if (prefs.get().notifDesktop && "Notification" in window && Notification.permission === "default") {
+    if (prefs.get().notifDesktop && !desktop && "Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
+    }
+    if (desktop) {
+      desktop.setHotkeys(prefs.get().keys);
+      desktop.onHotkey((action) => runAction(action));
+      desktop.onTrayAction((action) => runAction(action));
+      desktop.onNotifyOpen((channelId) => {
+        const target = channels.find((c) => c.id === channelId);
+        if (target) openChannel(target);
+      });
+      unsubscribePrefs = prefs.subscribe((p) => desktop.setHotkeys(p.keys));
     }
   });
 
@@ -346,6 +390,7 @@
     unsubscribe?.();
     socket?.close();
     clearTimeout(typingTimer);
+    unsubscribePrefs?.();
     window.removeEventListener("keydown", onHotkey);
   });
 
