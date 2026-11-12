@@ -67,7 +67,7 @@
 
   <div class="body">
     {#if !grouped}
-      <div class="head">
+      <div class="mhead">
         <b style="color:{message.color || 'inherit'}">{message.name}</b>
         <time>{time(message.createdAt)}</time>
         {#if message.pinned}<span class="tag">закреплено</span>{/if}
@@ -199,14 +199,14 @@
     transition: 0.15s;
   }
   .body { min-width: 0; }
-  .head {
+  .mhead {
     display: flex;
     align-items: baseline;
     gap: 8px;
     flex-wrap: wrap;
   }
-  .head b { font-size: 13.5px; font-weight: 600; }
-  .head time {
+  .mhead b { font-size: 13.5px; font-weight: 600; }
+  .mhead time {
     font-family: var(--mono);
     font-size: 9.5px;
     color: var(--dim);

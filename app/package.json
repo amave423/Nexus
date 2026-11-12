@@ -1,6 +1,6 @@
 {
   "name": "nexus-app",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Nexus — закрытый мессенджер для своих",
   "author": "Nexus",
@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron": "electron .",
+    "electron": "electron electron/main.cjs",
     "dist": "vite build && electron-builder",
     "test": "node --test --test-force-exit test/*.test.js"
   },

@@ -206,18 +206,20 @@ input {
   flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--line-soft);
-  padding: 14px 12px;
+  padding: 0 12px 14px;
   gap: 10px;
 }
 
 .side .brand {
   display: flex;
   align-items: center;
-  padding: 2px 4px 10px;
+  height: 64px;
+  padding: 0 4px;
+  flex: 0 0 auto;
 }
 
 .side .brand svg {
-  width: 150px;
+  width: 118px;
   height: auto;
 }
 
@@ -239,7 +241,11 @@ input {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #8f8f9d;
-  padding: 16px 10px 7px;
+  padding: 14px 10px 6px;
+}
+
+.group:first-child {
+  padding-top: 4px;
 }
 
 .group::after {
@@ -260,7 +266,7 @@ input {
   gap: 9px;
   font-size: 13.5px;
   font-weight: 500;
-  color: #a2a2ae;
+  color: #b6b6c2;
   text-align: left;
   transition: 0.16s;
 }
@@ -297,6 +303,90 @@ input {
 .chan.active .hash {
   color: var(--acid);
 }
+
+.voice-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(var(--acid-rgb), 0.28);
+  background: rgba(var(--acid-rgb), 0.06);
+  flex: 0 0 auto;
+}
+
+.vm-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0;
+}
+
+.vm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acid);
+  box-shadow: 0 0 8px rgba(var(--acid-rgb), 0.8);
+  flex: 0 0 auto;
+  animation: vm-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes vm-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.vm-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vm-text b {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vm-text span {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.vm-btns {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.vm-btns button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  transition: 0.15s;
+}
+
+.vm-btns button svg { width: 15px; height: 15px; }
+.vm-btns button:hover { color: var(--txt); background: rgba(255, 255, 255, 0.06); }
+.vm-btns button.off { color: #ff6b8a; }
+.vm-btns button.leave:hover { color: #ff6b8a; background: rgba(255, 107, 138, 0.12); }
 
 .me {
   display: flex;
@@ -484,7 +574,7 @@ input {
   align-items: center;
   gap: 10px;
   margin: 0 22px 18px;
-  padding: 6px 6px 6px 16px;
+  padding: 6px 8px 6px 14px;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(0, 0, 0, 0.4);
@@ -707,9 +797,9 @@ input {
 .result-text { font-size: 13px; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 .send {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   background: rgba(var(--acid-rgb), 0.14);

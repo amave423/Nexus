@@ -173,13 +173,16 @@
     try {
       micStream = await navigator.mediaDevices.getUserMedia(constraints());
       let track = micStream.getAudioTracks()[0];
+      let noiseFailed = false;
       if (P.noiseMode === "rnnoise") {
         micState = "загружаю шумодав…";
         try {
           micChain = await buildMicTrack(micStream, { level: 100, mode: "rnnoise" });
           track = micChain.track;
+          noiseFailed = !!micChain.failed;
         } catch {
           micChain = null;
+          noiseFailed = true;
         }
       }
       const ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -187,7 +190,11 @@
       analyser = ac.createAnalyser();
       analyser.fftSize = 128;
       source.connect(analyser);
-      micState = P.noiseMode === "rnnoise" ? "шумодав включён — говори" : "говори — полоски должны шевелиться";
+      micState = noiseFailed
+        ? "шумодав не загрузился — работает браузерный"
+        : P.noiseMode === "rnnoise"
+          ? "шумодав RNNoise включён — говори"
+          : "говори — полоски должны шевелиться";
       const data = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
         analyser.getByteFrequencyData(data);

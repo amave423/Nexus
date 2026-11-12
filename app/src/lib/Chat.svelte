@@ -12,6 +12,7 @@
   import ServerSettings from "./ServerSettings.svelte";
   import Toasts from "./Toasts.svelte";
   import { createVoiceClient } from "./voice.js";
+  import { rnnoiseReady, rnnoiseError } from "./noise.js";
 
   export let user;
   export let onLogout;
@@ -34,6 +35,7 @@
   let messages = [];
   let text = "";
   let status = "offline";
+  let ping = null;
   let typingName = "";
   let typingTimer = null;
   let socket = null;
@@ -341,6 +343,7 @@
   }
 
   async function openVoice(channel) {
+    if (!channel) return;
     sideOpen = false;
     current = channel;
     messages = [];
@@ -591,13 +594,14 @@
     applyState(boot);
     const first = boot.channels.find((c) => c.type === "text");
     if (first) await openChannel(first);
-    socket = connect(handleEvent, (s) => (status = s));
+    socket = connect(handleEvent, (s) => (status = s), (ms) => (ping = ms));
     voice = createVoiceClient({
       send: (payload) => socket.send(payload),
       settings: () => prefs.get(),
     });
     unsubscribe = voice.store.subscribe((value) => (vs = value));
     window.__nexusVoice = voice;
+    window.__nexusNoise = { ready: rnnoiseReady, error: rnnoiseError };
     window.addEventListener("keydown", onHotkey);
     if (prefs.get().notifDesktop && !desktop && "Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
@@ -694,6 +698,39 @@
       >+</button>
     </div>
 
+    {#if vs.channelId && !inRoom}
+      <div class="voice-mini">
+        <button class="vm-who" on:click={() => openVoice(voiceList.find((c) => c.id === vs.channelId))}>
+          <span class="vm-dot"></span>
+          <span class="vm-text">
+            <b>{voiceList.find((c) => c.id === vs.channelId)?.name || "голос"}</b>
+            <span>{(vs.rosters.get(vs.channelId) || []).length} в канале</span>
+          </span>
+        </button>
+        <div class="vm-btns">
+          <button class:off={vs.muted} title="Микрофон" aria-label="Микрофон" on:click={() => voice.toggleMic()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              {#if vs.muted}
+                <path d="M9 9v3a3 3 0 0 0 5.1 2.1" /><path d="M15 10.5V6a3 3 0 0 0-5.6-1.5" /><path d="M5 11a7 7 0 0 0 10.6 6" /><path d="M19 11a7 7 0 0 1-.8 3.2" /><path d="M12 18v3" /><path d="m3 3 18 18" />
+              {:else}
+                <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" />
+              {/if}
+            </svg>
+          </button>
+          <button class:off={vs.deafened} title="Звук" aria-label="Звук" on:click={() => voice.toggleDeafen()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="2.5" y="14" width="4" height="6" rx="1.6" /><rect x="17.5" y="14" width="4" height="6" rx="1.6" />
+            </svg>
+          </button>
+          <button class="leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M15.5 14.5 14 16c-3-1-5-3-6-6l1.5-1.5a1.5 1.5 0 0 0 .2-1.8L8 3.5A1.5 1.5 0 0 0 6.4 2.7H3.3A1.5 1.5 0 0 0 1.8 4.3C2.4 11 7 15.6 13.7 16.2a1.5 1.5 0 0 0 1.6-1.5Z" /><path d="m17 8 5 5" /><path d="m22 8-5 5" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    {/if}
+
     <div class="me">
       <button class="me-btn" on:click={() => (showSettings = true)}>
         <Avatar name={user.name} color={user.color} avatar={user.avatar} size={32} radius={10} />
@@ -718,8 +755,11 @@
       <h2>{current ? `${inRoom ? "◍" : "#"}${current.name}` : "Nexus"}</h2>
       <span class="topic">{current?.topic || ""}</span>
       <div class="spacer"></div>
-      <div class="pill">
+      <div class="pill" title="Задержка до сервера">
         <span class="dot" class:off={status !== "online"}></span>
+        {ping === null ? "—" : `${ping} мс`}
+      </div>
+      <div class="pill">
         {online.size} в сети
       </div>
       {#if !inRoom}

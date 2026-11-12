@@ -145,7 +145,12 @@ test("голос: шумодав RNNoise включается в проверк�
   await page.getByRole("button", { name: "Настройки" }).click();
   await page.getByRole("button", { name: "Голос и видео" }).click();
   await page.getByRole("button", { name: "Проверить" }).click();
-  await page.getByText("шумодав включён — говори").waitFor({ timeout: 20000 });
+  await page.getByText("шумодав RNNoise включён — говори").waitFor({ timeout: 20000 });
+  assert.equal(
+    await page.getByText("шумодав не загрузился — работает браузерный").count(),
+    0,
+    "RNNoise действительно загрузился, а не отвалился"
+  );
 
   const mode = await page.locator(".set-row", { hasText: "Шумоподавление" }).locator(".dd-btn").innerText();
   assert.match(mode, /RNNoise/);

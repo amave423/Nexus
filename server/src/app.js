@@ -995,6 +995,10 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     };
 
     switch (msg.t) {
+      case "ping": {
+        socket.send(JSON.stringify({ t: "pong", ts: msg.ts }));
+        return;
+      }
       case "typing": {
         const channelId = Number(msg.channelId);
         if (!canSeeChannel(user.id, channelId)) return;

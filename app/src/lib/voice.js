@@ -31,6 +31,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const local = emptyRemote();
   const rosters = new Map();
   const levels = new Map();
+  const sinks = new Map();
 
   const state = {
     channelId: null,
@@ -42,6 +43,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     cam: false,
     stream: false,
     micLevel: 0,
+    noise: null,
   };
 
   const store = writable(snapshot());
@@ -57,6 +59,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       cam: state.cam,
       stream: state.stream,
       micLevel: state.micLevel,
+      noise: state.noise,
       rosters: new Map([...rosters].map(([id, members]) => [id, members.map((m) => ({ ...m }))])),
       remote: new Map([...remote].map(([id, value]) => [id, { ...value }])),
       local: { ...local },
@@ -100,8 +103,38 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     publish();
   }
 
+  function sinkFor(userId) {
+    let el = sinks.get(userId);
+    if (!el) {
+      el = document.createElement("audio");
+      el.autoplay = true;
+      el.setAttribute("playsinline", "");
+      el.dataset.voice = String(userId);
+      document.body.appendChild(el);
+      sinks.set(userId, el);
+    }
+    return el;
+  }
+
+  function attachAudio(userId, stream) {
+    const el = sinkFor(userId);
+    if (el.srcObject === stream) return;
+    el.srcObject = stream;
+    el.muted = state.deafened;
+    el.play().catch(() => {});
+  }
+
+  function dropSink(userId) {
+    const el = sinks.get(userId);
+    if (!el) return;
+    el.srcObject = null;
+    el.remove();
+    sinks.delete(userId);
+  }
+
   function dropUser(userId) {
     remote.delete(userId);
+    dropSink(userId);
     for (const [producerId, entry] of [...consumers]) {
       if (entry.userId === userId) {
         entry.consumer.close();
@@ -112,8 +145,10 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function setStream(userId, kind, source, stream) {
     const entry = remote.get(userId) || emptyRemote();
-    if (kind === "audio") entry.audio = stream;
-    else if (source === "screen") entry.screen = stream;
+    if (kind === "audio") {
+      entry.audio = stream;
+      attachAudio(userId, stream);
+    } else if (source === "screen") entry.screen = stream;
     else entry.camera = stream;
     remote.set(userId, entry);
     publish();
@@ -122,8 +157,10 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function clearStream(userId, kind, source) {
     const entry = remote.get(userId);
     if (!entry) return;
-    if (kind === "audio") entry.audio = null;
-    else if (source === "screen") entry.screen = null;
+    if (kind === "audio") {
+      entry.audio = null;
+      dropSink(userId);
+    } else if (source === "screen") entry.screen = null;
     else entry.camera = null;
     publish();
   }
@@ -210,7 +247,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         meter.getByteFrequencyData(buffer);
         let sum = 0;
         for (const value of buffer) sum += value;
-        state.micLevel = Math.min(1, sum / buffer.length / 90);
+        const next = Math.min(1, sum / buffer.length / 90);
+        if (Math.abs(next - state.micLevel) < 0.02) return;
+        state.micLevel = next;
         publish();
       }, 120);
     } catch {
@@ -235,29 +274,32 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       audio: {
         deviceId: pref.micDevId ? { exact: pref.micDevId } : undefined,
         echoCancellation: pref.echoCancel !== false,
-        noiseSuppression: pref.noiseSup !== false,
+        noiseSuppression: pref.noiseMode === "browser",
         autoGainControl: pref.autoGain !== false,
         channelCount: 1,
       },
       video: false,
     });
     let track = micStream.getAudioTracks()[0];
+    state.noise = pref.noiseMode || "rnnoise";
     try {
       micChain = await buildMicTrack(micStream, {
         level: pref.micLevel,
         mode: pref.noiseMode || "rnnoise",
       });
       track = micChain.track;
+      if (micChain.failed) state.noise = "failed";
     } catch {
       micChain = null;
+      state.noise = "failed";
     }
     micProducer = await sendTransport.produce({
       track,
       appData: { source: "camera" },
-      encodings: [{ maxBitrate: QUALITY[pref.quality] || 96000, dtx: true }],
+      encodings: [{ maxBitrate: QUALITY[pref.quality] || 96000 }],
       codecOptions: {
         opusStereo: false,
-        opusDtx: true,
+        opusDtx: false,
         opusFec: true,
         opusMaxPlaybackRate: 48000,
       },
@@ -340,6 +382,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     consumers.clear();
     remote.clear();
     levels.clear();
+    for (const userId of [...sinks.keys()]) dropSink(userId);
     pendingProducers.length = 0;
     await stopMic();
     stopCamera({ silent: true });
@@ -385,6 +428,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   async function toggleDeafen() {
     state.deafened = !state.deafened;
+    for (const el of sinks.values()) el.muted = state.deafened;
     if (state.deafened && !state.muted) {
       await setMuted(true);
       return;
@@ -552,6 +596,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function reset() {
     for (const userId of remote.keys()) dropUser(userId);
+    for (const userId of [...sinks.keys()]) dropSink(userId);
     rosters.clear();
     levels.clear();
     state.channelId = null;

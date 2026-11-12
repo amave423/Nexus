@@ -60,12 +60,30 @@ export async function upload(file, size = {}) {
   return data;
 }
 
-export function connect(onEvent, onStatus) {
+export function connect(onEvent, onStatus, onPing) {
   const url = SERVER.replace(/^http/, "ws") + "/ws?token=" + token;
   let socket = null;
   let closed = false;
   let retry = 0;
   let queue = [];
+  let pingTimer = null;
+  let pingSent = 0;
+
+  const stopPing = () => {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  };
+
+  const startPing = () => {
+    stopPing();
+    const beat = () => {
+      if (!socket || socket.readyState !== 1) return;
+      pingSent = performance.now();
+      socket.send(JSON.stringify({ t: "ping", ts: Date.now() }));
+    };
+    beat();
+    pingTimer = setInterval(beat, 5000);
+  };
 
   const open = () => {
     socket = new WebSocket(url);
@@ -75,16 +93,25 @@ export function connect(onEvent, onStatus) {
       const waiting = queue;
       queue = [];
       for (const text of waiting) socket.send(text);
+      startPing();
     };
     socket.onmessage = (event) => {
+      let data;
       try {
-        onEvent(JSON.parse(event.data));
+        data = JSON.parse(event.data);
       } catch {
-        /* ignore malformed frames */
+        return;
       }
+      if (data.t === "pong") {
+        if (pingSent) onPing?.(Math.max(1, Math.round(performance.now() - pingSent)));
+        return;
+      }
+      onEvent(data);
     };
     socket.onclose = () => {
+      stopPing();
       onStatus?.("offline");
+      onPing?.(null);
       if (closed) return;
       retry = Math.min(retry + 1, 6);
       setTimeout(open, 400 * retry);
@@ -101,6 +128,7 @@ export function connect(onEvent, onStatus) {
     },
     close() {
       closed = true;
+      stopPing();
       socket?.close();
     },
   };

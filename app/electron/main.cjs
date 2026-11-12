@@ -1,6 +1,28 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, nativeImage, screen, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  ipcMain,
+  globalShortcut,
+  nativeImage,
+  screen,
+  shell,
+  protocol,
+  net,
+  session,
+  desktopCapturer,
+} = require("electron");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 const { autoUpdater } = require("electron-updater");
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "app",
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+  },
+]);
 
 const DEV_URL = process.env.NEXUS_DEV_URL;
 
@@ -163,7 +185,7 @@ function createWindow() {
   });
 
   if (DEV_URL) win.loadURL(DEV_URL);
-  else win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+  else win.loadURL("app://nexus/index.html");
 }
 
 function createTray() {
@@ -214,6 +236,82 @@ function showNotify(payload) {
   });
   notifyWin.on("closed", () => (notifyWin = null));
   notifyTimer = setTimeout(closeNotify, 5200);
+}
+
+let pickerWin = null;
+let pickerResolve = null;
+
+function closePicker(sourceId) {
+  const resolve = pickerResolve;
+  pickerResolve = null;
+  if (pickerWin && !pickerWin.isDestroyed()) pickerWin.close();
+  pickerWin = null;
+  resolve?.(sourceId || null);
+}
+
+ipcMain.on("picker:choose", (_event, id) => closePicker(id));
+ipcMain.on("picker:cancel", () => closePicker(null));
+
+async function pickSource() {
+  const sources = await desktopCapturer.getSources({
+    types: ["screen", "window"],
+    thumbnailSize: { width: 480, height: 270 },
+    fetchWindowIcons: false,
+  });
+  if (!sources.length) return null;
+  const list = sources.map((source) => ({
+    id: source.id,
+    name: source.name,
+    kind: source.id.startsWith("screen") ? "screen" : "window",
+    thumb: source.thumbnail.toDataURL(),
+  }));
+
+  return new Promise((resolve) => {
+    pickerResolve = resolve;
+    pickerWin = new BrowserWindow({
+      width: 720,
+      height: 560,
+      parent: win || undefined,
+      modal: !!win,
+      frame: false,
+      resizable: false,
+      backgroundColor: "#08080a",
+      title: "Поделиться экраном",
+      webPreferences: {
+        preload: path.join(__dirname, "picker-preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    pickerWin.loadFile(path.join(__dirname, "picker.html"));
+    pickerWin.webContents.once("did-finish-load", () => {
+      pickerWin.webContents.send("picker:sources", list);
+    });
+    pickerWin.on("closed", () => {
+      pickerWin = null;
+      const pending = pickerResolve;
+      pickerResolve = null;
+      pending?.(null);
+    });
+  });
+}
+
+function setupDisplayMedia() {
+  session.defaultSession.setDisplayMediaRequestHandler(
+    async (_request, callback) => {
+      try {
+        const sourceId = await pickSource();
+        if (!sourceId) return callback({});
+        const sources = await desktopCapturer.getSources({ types: ["screen", "window"] });
+        const source = sources.find((item) => item.id === sourceId);
+        if (!source) return callback({});
+        callback({ video: source });
+      } catch {
+        callback({});
+      }
+    },
+    { useSystemPicker: false }
+  );
 }
 
 function accelerator(combo) {
@@ -268,6 +366,16 @@ if (!gotLock) {
   app.on("second-instance", showWindow);
 
   app.whenReady().then(() => {
+    const root = path.join(__dirname, "..", "dist");
+    protocol.handle("app", (request) => {
+      const url = new URL(request.url);
+      let rel = decodeURIComponent(url.pathname);
+      if (!rel || rel === "/") rel = "/index.html";
+      const target = path.normalize(path.join(root, rel));
+      if (!target.startsWith(root)) return new Response("forbidden", { status: 403 });
+      return net.fetch(pathToFileURL(target).toString());
+    });
+    setupDisplayMedia();
     createWindow();
     createTray();
     setupUpdates();

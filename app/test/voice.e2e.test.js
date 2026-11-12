@@ -110,6 +110,9 @@ test("голос: два клиента слышат друг друга в ка
   assert.equal(gotB.kind, "audio");
   assert.ok(gotA.bytes > 0 && gotB.bytes > 0, "обе стороны приняли пакеты");
 
+  const noise = await pageA.evaluate(() => window.__nexusVoice.state.noise);
+  assert.equal(noise, "rnnoise", "шумодав RNNoise загрузился, а не отвалился в браузерный");
+
   const liveTracks = await pageA.evaluate(() =>
     [...document.querySelectorAll("audio")].map((node) => ({
       tracks: node.srcObject ? node.srcObject.getAudioTracks().length : 0,
@@ -204,6 +207,54 @@ test("голос: демонстрация экрана доходит до вт
   await pageA.getByTitle("Демонстрация экрана").click();
   await pageB.locator(".stream-view").waitFor({ state: "detached", timeout: 20000 });
   assert.equal(await pageB.locator(".seat").count(), 2, "после остановки стрима комната на месте");
+
+  await contextA.close();
+  await contextB.close();
+});
+
+test("голос: звук не пропадает при переходе в текстовый канал", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+  await waitForAudio(pageA, "Артёма");
+
+  await pageA.locator(".chan", { hasText: "general" }).click();
+  await pageA.getByPlaceholder("Написать в #general").waitFor({ timeout: 10000 });
+  assert.equal(await pageA.locator(".room").count(), 0, "комната закрыта, открыт чат");
+
+  const live = await pageA.evaluate(() =>
+    [...document.querySelectorAll("audio")].map((node) => ({
+      tracks: node.srcObject ? node.srcObject.getAudioTracks().length : 0,
+      live: node.srcObject ? node.srcObject.getAudioTracks().every((tr) => tr.readyState === "live") : false,
+      muted: node.muted,
+    }))
+  );
+  assert.ok(live.some((item) => item.tracks === 1 && item.live), "звук собеседника продолжает играть в текстовом канале");
+
+  const before = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
+  await pageA.waitForTimeout(2000);
+  const after = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
+  assert.ok(after > before, `пакеты продолжают идти: было ${before}, стало ${after}`);
+
+  await pageA.locator(".voice-mini").waitFor({ timeout: 5000 });
+  await pageA.locator(".voice-mini").getByTitle("Микрофон").click();
+  await pageB.locator(".seat-mute").first().waitFor({ timeout: 10000 });
+  assert.equal(await pageB.locator(".seat-mute").count(), 1, "мьют из текстового канала виден в комнате");
+
+  await pageA.locator(".voice-mini").getByTitle("Выйти из канала").click();
+  await pageA.locator(".voice-mini").waitFor({ state: "detached", timeout: 10000 });
+  assert.equal(await pageA.locator(".voice-mini").count(), 0, "вышел из голоса из текстового канала");
 
   await contextA.close();
   await contextB.close();

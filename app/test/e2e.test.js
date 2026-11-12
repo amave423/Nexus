@@ -94,6 +94,22 @@ test("клиент: второй сервер создаётся, переклю
   await guest.getByRole("heading", { name: "#general" }).waitFor();
 });
 
+test("клиент: пинг до сервера показывается в шапке", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const page = await browser.newPage();
+  await register(page, { name: "Артём" });
+  await page.getByRole("heading", { name: "#general" }).waitFor();
+
+  const pill = page.locator(".pill", { hasText: "мс" });
+  await pill.waitFor({ timeout: 15000 });
+  const text = await pill.textContent();
+  const value = Number(text.replace(/[^\d]/g, ""));
+  assert.ok(value > 0 && value < 5000, `пинг измерен: ${text}`);
+});
+
 test("клиент: неверный инвайт не пускает в чат", async (t) => {
   await startServer();
   const browser = await chromium.launch();

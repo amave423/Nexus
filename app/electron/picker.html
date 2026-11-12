@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Поделиться экраном</title>
+    <style>
+      :root {
+        --acid: #c8ff3d;
+        --ink: #08080a;
+        --panel: #101014;
+        --line: #23232b;
+        --text: #e8ecf2;
+        --dim: #8b93a1;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--ink);
+        color: var(--text);
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 13px;
+        user-select: none;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 18px 12px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      header .hint { color: var(--dim); font-size: 12px; margin-left: auto; }
+      .tabs { display: flex; gap: 6px; padding: 0 18px 12px; }
+      .tabs button {
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--dim);
+        border-radius: 8px;
+        padding: 6px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .tabs button.on {
+        color: var(--ink);
+        background: var(--acid);
+        border-color: var(--acid);
+        font-weight: 600;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        padding: 0 18px 18px;
+        max-height: 420px;
+        overflow-y: auto;
+      }
+      .src {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 8px;
+        cursor: pointer;
+        text-align: left;
+        color: inherit;
+        font: inherit;
+        transition: border-color 0.15s, transform 0.15s;
+      }
+      .src:hover { border-color: var(--acid); transform: translateY(-1px); }
+      .src img {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        border-radius: 8px;
+        background: #000;
+        display: block;
+      }
+      .src span {
+        display: block;
+        margin-top: 8px;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .empty { padding: 30px 18px; color: var(--dim); }
+      footer { padding: 0 18px 16px; display: flex; justify-content: flex-end; }
+      footer button {
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 8px 16px;
+        font: inherit;
+        cursor: pointer;
+      }
+      footer button:hover { border-color: var(--dim); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Поделиться экраном</h1>
+      <span class="hint">выбери окно или весь экран</span>
+    </header>
+    <div class="tabs">
+      <button data-kind="screen" class="on">Экраны</button>
+      <button data-kind="window">Окна</button>
+    </div>
+    <div class="grid" id="grid"></div>
+    <footer><button id="cancel">Отмена</button></footer>
+    <script>
+      let sources = [];
+      let kind = "screen";
+
+      const grid = document.getElementById("grid");
+
+      function render() {
+        const list = sources.filter((s) => s.kind === kind);
+        grid.innerHTML = "";
+        if (!list.length) {
+          grid.innerHTML = '<div class="empty">Ничего не нашлось</div>';
+          return;
+        }
+        for (const source of list) {
+          const button = document.createElement("button");
+          button.className = "src";
+          const img = document.createElement("img");
+          img.src = source.thumb;
+          img.alt = "";
+          const label = document.createElement("span");
+          label.textContent = source.name;
+          button.append(img, label);
+          button.addEventListener("click", () => window.picker.choose(source.id));
+          grid.append(button);
+        }
+      }
+
+      document.querySelectorAll(".tabs button").forEach((button) => {
+        button.addEventListener("click", () => {
+          kind = button.dataset.kind;
+          document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b === button));
+          render();
+        });
+      });
+
+      document.getElementById("cancel").addEventListener("click", () => window.picker.cancel());
+
+      window.picker.onSources((list) => {
+        sources = list;
+        render();
+      });
+    </script>
+  </body>
+</html>

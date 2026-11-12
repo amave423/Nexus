@@ -61,15 +61,6 @@
   $: viewers = Math.max(0, roomies.length - 1);
   $: speaking = (p) => vs.levels.has(p.userId);
 
-  function audioStream(node, stream) {
-    const attach = (s) => {
-      node.srcObject = s || null;
-      if (s) node.play().catch(() => {});
-    };
-    attach(stream);
-    return { update: attach };
-  }
-
   function videoStream(node, stream) {
     const attach = (s) => {
       if (node.srcObject !== (s || null)) node.srcObject = s || null;
@@ -203,8 +194,3 @@
   </div>
 </div>
 
-{#each roomies as p (p.userId)}
-  {#if !p.me}
-    <audio use:audioStream={remoteOf(p.userId).audio} autoplay muted={vs.deafened}></audio>
-  {/if}
-{/each}

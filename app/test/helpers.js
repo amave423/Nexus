@@ -47,10 +47,7 @@ function serveStatic() {
   });
 }
 
-export async function startServer({ prefix = "nexus-e2e-", portBase = 8300, env = {}, timeout = 20000 } = {}) {
-  const dataDir = mkdtempSync(join(tmpdir(), prefix));
-  const port = portBase + Math.floor(Math.random() * 300);
-  const apiBase = `http://127.0.0.1:${port}`;
+function boot(port, dataDir, env, timeout) {
   const child = spawn(process.execPath, [serverEntry], {
     env: {
       ...process.env,
@@ -62,30 +59,84 @@ export async function startServer({ prefix = "nexus-e2e-", portBase = 8300, env 
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let invite = null;
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("сервер не поднялся")), timeout);
+  return new Promise((resolve, reject) => {
+    let invite = null;
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("сервер не поднялся"));
+    }, timeout);
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString();
       const match = text.match(/инвайт-код: (\S+)/);
       if (match) invite = match[1];
       if (text.includes("слушаю") && invite) {
         clearTimeout(timer);
-        resolve();
+        resolve({ child, invite });
       }
     });
     child.stderr.on("data", (chunk) => {
       const text = chunk.toString();
+      if (text.includes("EADDRINUSE")) {
+        clearTimeout(timer);
+        child.kill();
+        reject(Object.assign(new Error("port busy"), { busy: true }));
+        return;
+      }
       if (text.includes("Error")) {
         clearTimeout(timer);
+        child.kill();
         reject(new Error(text));
       }
     });
   });
+}
 
+export async function startServer({ prefix = "nexus-e2e-", portBase = 8300, env = {}, timeout = 20000 } = {}) {
+  const dataDir = mkdtempSync(join(tmpdir(), prefix));
+
+  let child = null;
+  let invite = null;
+  let port = 0;
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    port = portBase + Math.floor(Math.random() * 2000);
+    try {
+      const booted = await boot(port, dataDir, env, timeout);
+      child = booted.child;
+      invite = booted.invite;
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!error.busy) throw error;
+    }
+  }
+  if (!child) throw lastError || new Error("сервер не поднялся");
+
+  const apiBase = `http://127.0.0.1:${port}`;
   const staticServer = serveStatic();
-  const staticPort = port + 400;
-  await new Promise((resolve) => staticServer.listen(staticPort, "127.0.0.1", resolve));
+  let staticPort = port + 400;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => {
+          staticServer.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = () => {
+          staticServer.off("error", onError);
+          resolve();
+        };
+        staticServer.once("error", onError);
+        staticServer.once("listening", onListening);
+        staticServer.listen(staticPort, "127.0.0.1");
+      });
+      break;
+    } catch (error) {
+      if (error.code !== "EADDRINUSE") throw error;
+      staticPort = port + 400 + Math.floor(Math.random() * 2000);
+    }
+  }
   const base = `http://127.0.0.1:${staticPort}`;
 
   return { base, apiBase, invite, dataDir, child, staticServer };
