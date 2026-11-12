@@ -34,6 +34,29 @@ export async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
+export function fileUrl(url) {
+  if (!url) return "";
+  return `${SERVER}${url}?token=${encodeURIComponent(token || "")}`;
+}
+
+export async function upload(file, size = {}) {
+  const query = size.width ? `?w=${size.width}&h=${size.height}` : "";
+  const form = new FormData();
+  form.append("file", file, file.name || "файл");
+  const res = await fetch(`${SERVER}/api/upload${query}`, {
+    method: "POST",
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `http_${res.status}`);
+    err.code = data.error;
+    throw err;
+  }
+  return data;
+}
+
 export function connect(onEvent, onStatus) {
   const url = SERVER.replace(/^http/, "ws") + "/ws?token=" + token;
   let socket = null;

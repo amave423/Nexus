@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, nativeImage, screen, shell } = require("electron");
 const path = require("node:path");
+const { autoUpdater } = require("electron-updater");
 
 const DEV_URL = process.env.NEXUS_DEV_URL;
 
@@ -10,6 +11,57 @@ let notifyTimer = null;
 let quitting = false;
 let voiceState = { muted: false, deafened: false, inChannel: false, channelName: "" };
 let unread = 0;
+let updateState = { status: "idle", version: null, percent: 0, error: null };
+
+function pushUpdate(patch) {
+  updateState = { ...updateState, ...patch };
+  send("update:state", updateState);
+}
+
+function setupUpdates() {
+  if (!app.isPackaged) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => pushUpdate({ status: "checking", error: null }));
+  autoUpdater.on("update-available", (info) => {
+    pushUpdate({ status: "downloading", version: info.version, percent: 0 });
+  });
+  autoUpdater.on("update-not-available", () => pushUpdate({ status: "latest" }));
+  autoUpdater.on("download-progress", (progress) =>
+    pushUpdate({ status: "downloading", percent: Math.round(progress.percent) })
+  );
+  autoUpdater.on("update-downloaded", (info) => {
+    pushUpdate({ status: "ready", version: info.version, percent: 100 });
+    showNotify({
+      name: "Nexus",
+      text: `Обновление ${info.version} готово. Нажми, чтобы перезапустить.`,
+      color: "#c8ff3d",
+      action: "update",
+    });
+  });
+  autoUpdater.on("error", (error) =>
+    pushUpdate({ status: "error", error: String(error?.message || error).slice(0, 200) })
+  );
+  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
+}
+
+ipcMain.handle("app:info", () => ({ version: app.getVersion(), packaged: app.isPackaged }));
+
+ipcMain.handle("update:check", async () => {
+  if (!app.isPackaged) return { status: "dev" };
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    pushUpdate({ status: "error", error: String(error?.message || error).slice(0, 200) });
+  }
+  return updateState;
+});
+
+ipcMain.on("update:install", () => {
+  quitting = true;
+  autoUpdater.quitAndInstall();
+});
 
 const iconPath = () =>
   app.isPackaged
@@ -127,8 +179,11 @@ function closeNotify() {
   notifyWin = null;
 }
 
+let notifyAction = null;
+
 function showNotify(payload) {
   closeNotify();
+  notifyAction = payload.action || null;
   const area = screen.getPrimaryDisplay().workArea;
   const width = 360;
   const height = 104;
@@ -194,7 +249,13 @@ ipcMain.on("desktop:badge", (_event, count) => {
 ipcMain.on("desktop:notify", (_event, payload) => showNotify(payload));
 ipcMain.on("desktop:focus", () => showWindow());
 ipcMain.on("notify:open", (_event, channelId) => {
+  const action = notifyAction;
   closeNotify();
+  if (action === "update") {
+    quitting = true;
+    autoUpdater.quitAndInstall();
+    return;
+  }
   showWindow();
   send("notify:open", channelId);
 });
@@ -209,6 +270,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     createWindow();
     createTray();
+    setupUpdates();
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
       else showWindow();

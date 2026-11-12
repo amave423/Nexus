@@ -1,5 +1,6 @@
 import { writable } from "svelte/store";
 import { Device } from "mediasoup-client";
+import { buildMicTrack } from "./noise.js";
 
 const emptyRemote = () => ({ audio: null, camera: null, screen: null });
 
@@ -225,22 +226,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   const QUALITY = { "64 kbps": 64000, "96 kbps": 96000, "128 kbps": 128000 };
-
-  async function micTrack(stream, level = 100) {
-    const raw = stream.getAudioTracks()[0];
-    if (!level || level >= 100) return raw;
-    try {
-      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtx.createMediaStreamSource(stream);
-      micGain = audioCtx.createGain();
-      micGain.gain.value = Math.max(0, Math.min(1, level / 100));
-      const dest = audioCtx.createMediaStreamDestination();
-      source.connect(micGain).connect(dest);
-      return dest.stream.getAudioTracks()[0];
-    } catch {
-      return raw;
-    }
-  }
+  let micChain = null;
 
   async function startMic() {
     if (micProducer) return;
@@ -255,7 +241,16 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       },
       video: false,
     });
-    const track = await micTrack(micStream, pref.micLevel);
+    let track = micStream.getAudioTracks()[0];
+    try {
+      micChain = await buildMicTrack(micStream, {
+        level: pref.micLevel,
+        mode: pref.noiseMode || "rnnoise",
+      });
+      track = micChain.track;
+    } catch {
+      micChain = null;
+    }
     micProducer = await sendTransport.produce({
       track,
       appData: { source: "camera" },
@@ -284,8 +279,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     micProducer = null;
     micStream?.getTracks().forEach((track) => track.stop());
     micStream = null;
-    micGain?.disconnect();
-    micGain = null;
+    micChain?.dispose();
+    micChain = null;
     local.mic = null;
     publish();
   }

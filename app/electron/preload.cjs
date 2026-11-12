@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld("nexus", {
     onHotkey: listen("hotkey"),
     onTrayAction: listen("tray:action"),
     onNotifyOpen: listen("notify:open"),
+    info: () => ipcRenderer.invoke("app:info"),
+    checkUpdate: () => ipcRenderer.invoke("update:check"),
+    installUpdate: () => ipcRenderer.send("update:install"),
+    onUpdate: listen("update:state"),
   },
   notify: {
     onData: listen("notify:data"),

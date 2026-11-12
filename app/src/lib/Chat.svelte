@@ -1,12 +1,13 @@
 <script>
   import { onMount, onDestroy } from "svelte";
-  import { api, connect, setToken } from "./api.js";
+  import { api, connect, setToken, upload, fileUrl } from "./api.js";
   import { prefs } from "./prefs.js";
   import { playSound } from "./sound.js";
   import { toast } from "./toasts.js";
   import Logo from "./Logo.svelte";
   import Avatar from "./Avatar.svelte";
   import Room from "./Room.svelte";
+  import Message from "./Message.svelte";
   import Settings from "./Settings.svelte";
   import ServerSettings from "./ServerSettings.svelte";
   import Toasts from "./Toasts.svelte";
@@ -45,6 +46,23 @@
   let showMembers = false;
   let sideOpen = false;
   let unread = new Set();
+  let replyTo = null;
+  let pending = [];
+  let uploading = false;
+  let fileInput = null;
+  let hasMore = false;
+  let loadingOlder = false;
+  let highlightId = null;
+  let searchOpen = false;
+  let searchQuery = "";
+  let searchResults = [];
+  let searching = false;
+  let pinsOpen = false;
+  let pins = [];
+  let dragOver = false;
+  let emojiOpen = false;
+
+  const QUICK_EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀"];
 
   const emptyVoice = {
     channelId: null,
@@ -98,10 +116,15 @@
   async function openChannel(channel) {
     sideOpen = false;
     current = channel;
+    replyTo = null;
+    pending = [];
+    searchOpen = false;
+    pinsOpen = false;
     unread.delete(channel.id);
     unread = new Set(unread);
     const data = await api(`/api/channels/${channel.id}/messages`);
     messages = data.messages;
+    hasMore = data.messages.length >= 50;
     scrollDown();
   }
 
@@ -111,14 +134,37 @@
     });
   }
 
+  async function loadOlder() {
+    if (!current || loadingOlder || !hasMore || !messages.length) return;
+    loadingOlder = true;
+    const before = messages[0].id;
+    const height = listEl?.scrollHeight || 0;
+    try {
+      const data = await api(`/api/channels/${current.id}/messages?before=${before}`);
+      if (data.messages.length < 50) hasMore = false;
+      messages = [...data.messages, ...messages];
+      requestAnimationFrame(() => {
+        if (listEl) listEl.scrollTop = listEl.scrollHeight - height;
+      });
+    } finally {
+      loadingOlder = false;
+    }
+  }
+
+  function onScroll() {
+    if (listEl && listEl.scrollTop < 60) loadOlder();
+  }
+
   async function send() {
     const value = text.trim();
-    if (!value || !current) return;
+    if ((!value && !pending.length) || !current) return;
+    const body = { text: value, attachments: pending };
+    if (replyTo) body.replyTo = replyTo.id;
     text = "";
-    const data = await api(`/api/channels/${current.id}/messages`, {
-      method: "POST",
-      body: { text: value },
-    });
+    pending = [];
+    replyTo = null;
+    emojiOpen = false;
+    const data = await api(`/api/channels/${current.id}/messages`, { method: "POST", body });
     if (!messages.some((m) => m.id === data.message.id)) messages = [...messages, data.message];
     scrollDown();
   }
@@ -129,12 +175,169 @@
       send();
       return;
     }
+    if (e.key === "Escape") {
+      replyTo = null;
+      emojiOpen = false;
+    }
     if (!current) return;
     const now = Date.now();
     if (now - lastTypingSent > 1200) {
       lastTypingSent = now;
       socket?.send({ t: "typing", channelId: current.id });
     }
+  }
+
+  async function addFiles(files) {
+    if (!current || !files?.length) return;
+    uploading = true;
+    try {
+      for (const file of [...files].slice(0, 10 - pending.length)) {
+        if (file.size > 12 * 1024 * 1024) {
+          toast({ name: "Файл", text: `${file.name} больше 12 МБ`, color: "#ff6b8a" });
+          continue;
+        }
+        let size = {};
+        if (file.type.startsWith("image/")) {
+          size = await new Promise((resolve) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+              resolve({ width: img.naturalWidth, height: img.naturalHeight });
+              URL.revokeObjectURL(url);
+            };
+            img.onerror = () => resolve({});
+            img.src = url;
+          });
+        }
+        try {
+          const data = await upload(file, size);
+          pending = [...pending, data];
+        } catch (error) {
+          toast({ name: "Файл", text: error.code === "too_big" ? "Файл больше 12 МБ" : "Не загрузился", color: "#ff6b8a" });
+        }
+      }
+    } finally {
+      uploading = false;
+    }
+  }
+
+  function onPaste(e) {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    dragOver = false;
+    addFiles(e.dataTransfer?.files);
+  }
+
+  async function editMessage(message, value) {
+    try {
+      const data = await api(`/api/messages/${message.id}`, { method: "PATCH", body: { text: value } });
+      messages = messages.map((m) => (m.id === data.message.id ? data.message : m));
+    } catch {
+      toast({ name: "Не вышло", text: "Сообщение не изменилось", color: "#ff6b8a" });
+    }
+  }
+
+  async function deleteMessage(message) {
+    try {
+      await api(`/api/messages/${message.id}`, { method: "DELETE" });
+    } catch {
+      toast({ name: "Не вышло", text: "Сообщение не удалилось", color: "#ff6b8a" });
+    }
+  }
+
+  async function react(message, emoji) {
+    try {
+      const data = await api(`/api/messages/${message.id}/reactions`, {
+        method: "PUT",
+        body: { emoji },
+      });
+      messages = messages.map((m) => (m.id === message.id ? { ...m, reactions: data.reactions } : m));
+    } catch {
+      /* реакция не критична */
+    }
+  }
+
+  async function pin(message) {
+    try {
+      await api(`/api/messages/${message.id}/pin`, {
+        method: "PUT",
+        body: { pinned: !message.pinned },
+      });
+    } catch {
+      toast({ name: "Не вышло", text: "Нужно право управлять сообщениями", color: "#ff6b8a" });
+    }
+  }
+
+  function jumpTo(id) {
+    const el = document.getElementById(`m-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    highlightId = id;
+    setTimeout(() => (highlightId = null), 1600);
+  }
+
+  async function openPins() {
+    if (!current) return;
+    pinsOpen = !pinsOpen;
+    searchOpen = false;
+    if (!pinsOpen) return;
+    const data = await api(`/api/channels/${current.id}/pins`);
+    pins = data.messages;
+  }
+
+  async function runSearch() {
+    const q = searchQuery.trim();
+    if (!space || q.length < 2) {
+      searchResults = [];
+      return;
+    }
+    searching = true;
+    try {
+      const data = await api(`/api/spaces/${space.id}/search?q=${encodeURIComponent(q)}`);
+      searchResults = data.messages;
+    } finally {
+      searching = false;
+    }
+  }
+
+  async function openResult(message) {
+    const channel = channels.find((c) => c.id === message.channelId);
+    if (!channel) return;
+    searchOpen = false;
+    await openChannel(channel);
+    setTimeout(() => jumpTo(message.id), 120);
+  }
+
+  const canManage = () => permissions.includes("manage_messages");
+
+  function sameGroup(prev, next) {
+    if (!prev) return false;
+    if (prev.userId !== next.userId) return false;
+    if (prev.deleted || next.deleted) return false;
+    if (next.reply) return false;
+    return next.createdAt - prev.createdAt < 5 * 60 * 1000;
+  }
+
+  function dayLabel(ts) {
+    const date = new Date(ts);
+    const today = new Date();
+    const yesterday = new Date(Date.now() - 86400000);
+    const same = (a, b) => a.toDateString() === b.toDateString();
+    if (same(date, today)) return "сегодня";
+    if (same(date, yesterday)) return "вчера";
+    return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  }
+
+  function newDay(prev, next) {
+    if (!prev) return true;
+    return new Date(prev.createdAt).toDateString() !== new Date(next.createdAt).toDateString();
   }
 
   async function openVoice(channel) {
@@ -197,6 +400,29 @@
         }
       }
       notifyMessage(event.message);
+      return;
+    }
+    if (event.t === "message.update") {
+      messages = messages.map((m) => (m.id === event.message.id ? event.message : m));
+      return;
+    }
+    if (event.t === "message.delete") {
+      messages = messages.map((m) =>
+        m.id === event.messageId ? { ...m, deleted: true, text: "", attachments: [], reactions: [] } : m
+      );
+      return;
+    }
+    if (event.t === "message.reactions") {
+      messages = messages.map((m) =>
+        m.id === event.messageId ? { ...m, reactions: event.reactions } : m
+      );
+      return;
+    }
+    if (event.t === "message.pin") {
+      messages = messages.map((m) =>
+        m.id === event.messageId ? { ...m, pinned: event.pinned } : m
+      );
+      if (pinsOpen && current?.id === event.channelId) openPins();
       return;
     }
     if (event.t === "presence") {
@@ -333,7 +559,10 @@
     if (action === "cam") voice?.toggleCamera().catch(() => {});
     if (action === "screen") voice?.toggleScreen().catch(() => {});
     if (action === "leave") voice?.leave();
-    if (action === "search") inputEl?.focus();
+    if (action === "search") {
+      searchOpen = true;
+      pinsOpen = false;
+    }
   }
 
   function onHotkey(e) {
@@ -493,6 +722,20 @@
         <span class="dot" class:off={status !== "online"}></span>
         {online.size} в сети
       </div>
+      {#if !inRoom}
+        <button class="icon-btn" class:on={searchOpen} aria-label="Поиск" title="Поиск (Ctrl+K)" on:click={() => { searchOpen = !searchOpen; pinsOpen = false; }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="6.5" />
+            <path d="M16 16l4.5 4.5" />
+          </svg>
+        </button>
+        <button class="icon-btn" class:on={pinsOpen} aria-label="Закреплённые" title="Закреплённые" on:click={openPins}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+            <path d="M12 13v7" />
+          </svg>
+        </button>
+      {/if}
       <button class="icon-btn" class:on={showMembers} aria-label="Участники" on:click={() => (showMembers = !showMembers)}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
           <circle cx="9" cy="8" r="3.2" />
@@ -508,36 +751,151 @@
 
     {#if inRoom}
       <Room channel={current} {user} people={members} {vs} {voice} />
+    {:else if searchOpen}
+      <div class="panel">
+        <div class="panel-head">
+          <input
+            class="panel-input"
+            bind:value={searchQuery}
+            on:input={runSearch}
+            placeholder="Поиск по серверу"
+            autofocus
+          />
+          <button class="icon-btn" aria-label="Закрыть" on:click={() => (searchOpen = false)}>✕</button>
+        </div>
+        <div class="panel-body">
+          {#if searching}<div class="panel-hint">ищу…</div>{/if}
+          {#if !searching && searchQuery.trim().length >= 2 && !searchResults.length}
+            <div class="panel-hint">ничего не нашлось</div>
+          {/if}
+          {#each searchResults as result (result.id)}
+            <button class="result" on:click={() => openResult(result)}>
+              <div class="result-head">
+                <b style="color:{result.color || 'inherit'}">{result.name}</b>
+                <span class="result-chan">#{channels.find((c) => c.id === result.channelId)?.name || ""}</span>
+                <time>{new Date(result.createdAt).toLocaleDateString("ru-RU")}</time>
+              </div>
+              <div class="result-text">{result.text}</div>
+            </button>
+          {/each}
+        </div>
+      </div>
+    {:else if pinsOpen}
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-title">закреплённые · {pins.length}</span>
+          <button class="icon-btn" aria-label="Закрыть" on:click={() => (pinsOpen = false)}>✕</button>
+        </div>
+        <div class="panel-body">
+          {#if !pins.length}<div class="panel-hint">пока ничего не закреплено</div>{/if}
+          {#each pins as pinned (pinned.id)}
+            <button class="result" on:click={() => { pinsOpen = false; jumpTo(pinned.id); }}>
+              <div class="result-head">
+                <b style="color:{pinned.color || 'inherit'}">{pinned.name}</b>
+                <time>{new Date(pinned.createdAt).toLocaleDateString("ru-RU")}</time>
+              </div>
+              <div class="result-text">{pinned.text}</div>
+            </button>
+          {/each}
+        </div>
+      </div>
     {:else}
-    <div class="messages" bind:this={listEl}>
+    <div
+      class="messages"
+      class:drag={dragOver}
+      bind:this={listEl}
+      on:scroll={onScroll}
+      on:dragover|preventDefault={() => (dragOver = true)}
+      on:dragleave={() => (dragOver = false)}
+      on:drop={onDrop}
+    >
+      {#if loadingOlder}<div class="older">загружаю…</div>{/if}
       {#if messages.length === 0}
         <div class="empty">Тут пока тихо. Напиши первым.</div>
       {/if}
-      {#each messages as message (message.id)}
-        <div class="msg">
-          <Avatar name={message.name} color={message.color} avatar={message.avatar} size={38} radius={12} />
-          <div>
-            <div class="msg-head">
-              <b>{message.name}</b>
-              <time>{time(message.createdAt)}</time>
-            </div>
-            <div class="msg-text">{message.text}</div>
-          </div>
+      {#each messages as message, i (message.id)}
+        {#if newDay(messages[i - 1], message)}
+          <div class="day"><span>{dayLabel(message.createdAt)}</span></div>
+        {/if}
+        <div id={`m-${message.id}`} class:flash={highlightId === message.id}>
+          <Message
+            {message}
+            me={user}
+            canManage={canManage()}
+            grouped={sameGroup(messages[i - 1], message) && !newDay(messages[i - 1], message)}
+            onReply={(m) => { replyTo = m; inputEl?.focus(); }}
+            onEdit={editMessage}
+            onDelete={deleteMessage}
+            onReact={react}
+            onPin={pin}
+            onJump={jumpTo}
+          />
         </div>
       {/each}
     </div>
 
     <div class="typing">{typingName ? `${typingName} печатает…` : ""}</div>
 
+    {#if replyTo}
+      <div class="reply-bar">
+        <span class="bar"></span>
+        <span>ответ <b style="color:{replyTo.color || 'inherit'}">{replyTo.name}</b></span>
+        <span class="reply-snip">{replyTo.text}</span>
+        <button aria-label="Отменить ответ" on:click={() => (replyTo = null)}>✕</button>
+      </div>
+    {/if}
+
+    {#if pending.length}
+      <div class="pending">
+        {#each pending as file (file.url)}
+          <div class="pend">
+            {#if file.mime.startsWith("image/")}
+              <img src={fileUrl(file.url)} alt={file.name} />
+            {:else}
+              <span class="pend-icon">↓</span>
+            {/if}
+            <span class="pend-name">{file.name}</span>
+            <button aria-label="Убрать" on:click={() => (pending = pending.filter((f) => f.url !== file.url))}>✕</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     <form class="composer" on:submit|preventDefault={send}>
       <input
+        class="hidden-file"
+        type="file"
+        multiple
+        bind:this={fileInput}
+        on:change={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
+      />
+      <button type="button" class="tool" title="Прикрепить" aria-label="Прикрепить" on:click={() => fileInput?.click()}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+      <div class="emoji-wrap">
+        <button type="button" class="tool" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>☺</button>
+        {#if emojiOpen}
+          <div class="emoji-pop">
+            {#each QUICK_EMOJI as emoji}
+              <button type="button" on:click={() => { text += emoji; emojiOpen = false; inputEl?.focus(); }}>{emoji}</button>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <textarea
         bind:this={inputEl}
         bind:value={text}
         on:keydown={onKey}
+        on:paste={onPaste}
+        rows="1"
         placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
         disabled={!current}
-      />
-      <button class="send" type="submit" aria-label="Отправить">↑</button>
+      ></textarea>
+      <button class="send" type="submit" aria-label="Отправить" disabled={uploading}>
+        {uploading ? "…" : "↑"}
+      </button>
     </form>
     {/if}
   </section>

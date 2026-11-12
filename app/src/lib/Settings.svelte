@@ -1,7 +1,8 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { api } from "./api.js";
-  import { prefs, ACCENTS, DEFAULTS } from "./prefs.js";
+  import { prefs, ACCENTS, DEFAULTS, NOISE } from "./prefs.js";
+  import { buildMicTrack } from "./noise.js";
   import { playSound } from "./sound.js";
   import { toast } from "./toasts.js";
   import Avatar from "./Avatar.svelte";
@@ -19,6 +20,7 @@
     { id: "notify", label: "Уведомления" },
     { id: "look", label: "Внешний вид" },
     { id: "keys", label: "Горячие клавиши" },
+    { id: "update", label: "Обновления" },
   ];
 
   const STATUS_LABEL = {
@@ -39,6 +41,7 @@
 
   let devices = [];
   let micStream = null;
+  let micChain = null;
   let analyser = null;
   let raf = 0;
   let bars = new Array(28).fill(0);
@@ -50,6 +53,26 @@
   let recording = false;
 
   let capturing = null;
+  let appInfo = { version: "—", packaged: false };
+  let update = { status: "idle", version: null, percent: 0, error: null };
+
+  const desktop = window.nexus?.desktop || null;
+
+  const UPDATE_LABEL = {
+    idle: "Проверка ещё не запускалась",
+    checking: "Проверяю обновления…",
+    latest: "Установлена последняя версия",
+    downloading: "Скачиваю обновление",
+    ready: "Обновление готово — перезапусти приложение",
+    error: "Не удалось проверить обновления",
+    dev: "В режиме разработки обновления не проверяются",
+  };
+
+  async function checkUpdate() {
+    if (!desktop) return;
+    const result = await desktop.checkUpdate();
+    if (result) update = { ...update, ...result };
+  }
 
   let P;
   $: P = $prefs;
@@ -137,7 +160,7 @@
       audio: {
         deviceId: P.micDevId ? { exact: P.micDevId } : undefined,
         echoCancellation: P.echoCancel,
-        noiseSuppression: P.noiseSup,
+        noiseSuppression: P.noiseMode === "browser",
         autoGainControl: P.autoGain,
       },
     };
@@ -149,12 +172,22 @@
     micState = "запрашиваю доступ…";
     try {
       micStream = await navigator.mediaDevices.getUserMedia(constraints());
+      let track = micStream.getAudioTracks()[0];
+      if (P.noiseMode === "rnnoise") {
+        micState = "загружаю шумодав…";
+        try {
+          micChain = await buildMicTrack(micStream, { level: 100, mode: "rnnoise" });
+          track = micChain.track;
+        } catch {
+          micChain = null;
+        }
+      }
       const ac = new (window.AudioContext || window.webkitAudioContext)();
-      const source = ac.createMediaStreamSource(micStream);
+      const source = ac.createMediaStreamSource(new MediaStream([track]));
       analyser = ac.createAnalyser();
       analyser.fftSize = 128;
       source.connect(analyser);
-      micState = "говори — полоски должны шевелиться";
+      micState = P.noiseMode === "rnnoise" ? "шумодав включён — говори" : "говори — полоски должны шевелиться";
       const data = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
         analyser.getByteFrequencyData(data);
@@ -177,6 +210,8 @@
     cancelAnimationFrame(raf);
     raf = 0;
     micStream?.getTracks().forEach((t) => t.stop());
+    micChain?.dispose();
+    micChain = null;
     micStream = null;
     analyser = null;
     bars = new Array(28).fill(0.06);
@@ -187,7 +222,8 @@
     if (!micStream) return;
     chunks = [];
     recordedUrl = null;
-    recorder = new MediaRecorder(micStream);
+    const recorded = micChain ? new MediaStream([micChain.track]) : micStream;
+    recorder = new MediaRecorder(recorded);
     recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     recorder.onstop = () => {
       recordedUrl = URL.createObjectURL(new Blob(chunks, { type: "audio/webm" }));
@@ -233,12 +269,19 @@
     capturing = null;
   }
 
+  let offUpdate = null;
+
   onMount(() => {
     listDevices();
     navigator.mediaDevices?.addEventListener?.("devicechange", listDevices);
+    if (desktop) {
+      desktop.info?.().then((info) => (appInfo = info)).catch(() => {});
+      offUpdate = desktop.onUpdate?.((state) => (update = { ...update, ...state }));
+    }
   });
 
   onDestroy(() => {
+    offUpdate?.();
     stopMeter();
     navigator.mediaDevices?.removeEventListener?.("devicechange", listDevices);
     if (recordedUrl) URL.revokeObjectURL(recordedUrl);
@@ -366,8 +409,12 @@
           </div>
 
           <div class="set-row">
-            <div class="set-row-t"><b>Шумоподавление</b><span>Убирает фон: клавиатуру, вентилятор, улицу</span></div>
-            <button class="switch" class:on={P.noiseSup} role="switch" aria-checked={P.noiseSup} on:click={() => set({ noiseSup: !P.noiseSup })}><i></i></button>
+            <div class="set-row-t"><b>Шумоподавление</b><span>RNNoise вырезает клавиатуру, вентилятор и улицу</span></div>
+            <Dropdown
+              value={Object.keys(NOISE).find((label) => NOISE[label] === P.noiseMode) || "RNNoise · сильный"}
+              options={Object.keys(NOISE)}
+              on:change={(e) => { set({ noiseMode: NOISE[e.detail] || "rnnoise" }); stopMeter(); }}
+            />
           </div>
           <div class="set-row">
             <div class="set-row-t"><b>Эхоподавление</b><span>Гасит эхо, когда слушаешь в колонках</span></div>
@@ -453,6 +500,26 @@
             <div class="set-row-t"><b>Фон</b><span>Размытые пятна за интерфейсом</span></div>
             <button class="switch" class:on={P.bg} role="switch" aria-checked={P.bg} on:click={() => set({ bg: !P.bg })}><i></i></button>
           </div>
+        {/if}
+
+        {#if tab === "update"}
+          <div class="set-row">
+            <div class="set-row-t"><b>Версия</b><span>Nexus {appInfo.version}</span></div>
+            <button class="set-copy" on:click={checkUpdate} disabled={!desktop || update.status === "checking"}>
+              Проверить
+            </button>
+          </div>
+          <div class="set-row">
+            <div class="set-row-t">
+              <b>Состояние</b>
+              <span>{UPDATE_LABEL[update.status] || update.status}{update.status === "downloading" ? ` · ${update.percent}%` : ""}</span>
+            </div>
+            {#if update.status === "ready"}
+              <button class="set-copy" on:click={() => desktop?.installUpdate()}>Перезапустить</button>
+            {/if}
+          </div>
+          {#if update.error}<div class="error">{update.error}</div>{/if}
+          <p class="set-hint">Приложение само проверяет обновления при запуске и раз в шесть часов. Скачивается в фоне, установка — по кнопке.</p>
         {/if}
 
         {#if tab === "keys"}

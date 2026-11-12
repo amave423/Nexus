@@ -78,7 +78,7 @@ test("настройки: имя меняется и видно в чате", as
 
   await page.getByPlaceholder("Написать в #general").fill("новое имя");
   await page.getByPlaceholder("Написать в #general").press("Enter");
-  await page.locator(".msg-head b", { hasText: "Артём К" }).waitFor();
+  await page.locator(".msg .head b", { hasText: "Артём К" }).waitFor();
 });
 
 test("настройки: аватар загружается и появляется в панели", async (t) => {
@@ -94,7 +94,7 @@ test("настройки: аватар загружается и появляе�
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
     "base64"
   );
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.locator('input[type="file"][accept="image/*"]').setInputFiles({
     name: "avatar.png",
     mimeType: "image/png",
     buffer: png,

@@ -1,6 +1,6 @@
 {
   "name": "nexus-app",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Nexus — закрытый мессенджер для своих",
   "author": "Nexus",
@@ -39,6 +39,13 @@
         "to": "icon.png"
       }
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "amave423",
+        "repo": "Nexus"
+      }
+    ],
     "win": {
       "target": [
         "nsis"
@@ -52,6 +59,8 @@
     }
   },
   "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
+    "electron-updater": "^6.8.11",
     "mediasoup-client": "^3.26.0"
   }
 }

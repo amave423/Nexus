@@ -4,6 +4,12 @@ const KEY = "nexus.pref.v1";
 
 export const THEMES = { "Чернила": "ink", "Полночь": "night", "Контраст": "contrast" };
 export const DENSITY = { "Просторно": "wide", "Обычно": "normal", "Плотно": "compact" };
+export const NOISE = {
+  "RNNoise · сильный": "rnnoise",
+  "Браузерный · лёгкий": "browser",
+  "Выключен": "off",
+};
+
 export const SOUNDS = { "Мягкий": "soft", "Пинг": "ping", "Капля": "drop", "Аккорд": "chord" };
 export const ACCENTS = [
   ["#c8ff3d", "кислота"],
@@ -31,6 +37,7 @@ export const DEFAULTS = {
   outDevId: "",
   micLevel: 100,
   noiseSup: true,
+  noiseMode: "rnnoise",
   echoCancel: true,
   autoGain: true,
   voiceMode: false,
@@ -62,6 +69,7 @@ const hexToRgb = (hex) => {
 export function applyPref(pref) {
   const root = document.documentElement;
   root.dataset.theme = THEMES[pref.theme] || "ink";
+  root.dataset.noise = pref.noiseMode || "rnnoise";
   root.dataset.density = DENSITY[pref.density] || "normal";
   root.style.setProperty("--acid", pref.accent);
   root.style.setProperty("--acid-rgb", hexToRgb(pref.accent));
