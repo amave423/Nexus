@@ -8,3 +8,9 @@ server/data/
 *.log
 icon-*.png
 gitlog.txt
+*.tgz
+*.zip
+*.db
+*.db-shm
+*.db-wal
+.env*
