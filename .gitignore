@@ -5,6 +5,8 @@ app/release/
 app/build.log
 app/build2.log
 server/data/
+.tmpdata*/
+app/test/artifacts/
 *.log
 icon-*.png
 gitlog.txt

@@ -1,4 +1,5 @@
 @import "./room.css";
+@import "./ui.css";
 
 :root {
   --bg: #08080a;
@@ -13,6 +14,9 @@
   --muted: #9a9aa6;
   --acid: #c8ff3d;
   --acid-rgb: 200, 255, 61;
+  --bg-3: #101017;
+  --bg-4: #16161f;
+  --rose: #ff6b8a;
   --font: "Space Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
 }
@@ -194,7 +198,7 @@ input {
   z-index: 1;
   height: 100%;
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 250px minmax(0, 1fr) auto;
 }
 
 .side {
@@ -520,11 +524,42 @@ input {
   color: var(--dim);
 }
 
+.burger {
+  display: none;
+  width: 34px; height: 34px; border-radius: 10px;
+  place-items: center; flex: 0 0 auto;
+  border: 1px solid var(--line-soft); background: var(--panel); color: var(--muted);
+  transition: 0.16s;
+}
+.burger svg { width: 18px; height: 18px; }
+.burger:hover { color: var(--acid); border-color: rgba(var(--acid-rgb), 0.4); }
+.scrim {
+  display: none;
+  position: fixed; inset: 0; z-index: 33;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
   }
-  .side {
-    display: none;
+  .burger {
+    display: grid;
   }
+  .scrim {
+    display: block;
+  }
+  .side {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 34;
+    width: 258px; max-width: 82vw;
+    transform: translateX(-101%);
+    transition: transform 0.24s cubic-bezier(0.3, 0.8, 0.4, 1);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  }
+  .side.open {
+    transform: none;
+  }
+  .head h2 { font-size: 14px; }
 }
+

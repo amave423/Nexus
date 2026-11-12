@@ -3,7 +3,7 @@ import { Device } from "mediasoup-client";
 
 const emptyRemote = () => ({ audio: null, camera: null, screen: null });
 
-export function createVoiceClient({ send }) {
+export function createVoiceClient({ send, settings = () => ({}) }) {
   let seq = 0;
   const pending = new Map();
 
@@ -21,6 +21,7 @@ export function createVoiceClient({ send }) {
   let screenProducer = null;
   let meter = null;
   let meterTimer = null;
+  let micGain = null;
   let audioCtx = null;
   let leaving = false;
 
@@ -223,22 +224,42 @@ export function createVoiceClient({ send }) {
     state.micLevel = 0;
   }
 
+  const QUALITY = { "64 kbps": 64000, "96 kbps": 96000, "128 kbps": 128000 };
+
+  async function micTrack(stream, level = 100) {
+    const raw = stream.getAudioTracks()[0];
+    if (!level || level >= 100) return raw;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      micGain = audioCtx.createGain();
+      micGain.gain.value = Math.max(0, Math.min(1, level / 100));
+      const dest = audioCtx.createMediaStreamDestination();
+      source.connect(micGain).connect(dest);
+      return dest.stream.getAudioTracks()[0];
+    } catch {
+      return raw;
+    }
+  }
+
   async function startMic() {
     if (micProducer) return;
+    const pref = settings() || {};
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        deviceId: pref.micDevId ? { exact: pref.micDevId } : undefined,
+        echoCancellation: pref.echoCancel !== false,
+        noiseSuppression: pref.noiseSup !== false,
+        autoGainControl: pref.autoGain !== false,
         channelCount: 1,
       },
       video: false,
     });
-    const track = micStream.getAudioTracks()[0];
+    const track = await micTrack(micStream, pref.micLevel);
     micProducer = await sendTransport.produce({
       track,
       appData: { source: "camera" },
-      encodings: [{ maxBitrate: 32000, dtx: true }],
+      encodings: [{ maxBitrate: QUALITY[pref.quality] || 96000, dtx: true }],
       codecOptions: {
         opusStereo: false,
         opusDtx: true,
@@ -263,6 +284,8 @@ export function createVoiceClient({ send }) {
     micProducer = null;
     micStream?.getTracks().forEach((track) => track.stop());
     micStream = null;
+    micGain?.disconnect();
+    micGain = null;
     local.mic = null;
     publish();
   }

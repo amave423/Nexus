@@ -168,7 +168,7 @@ test("инвайт создаёт только владелец", async () => {
     headers: { authorization: `Bearer ${owner.body.token}` },
   });
   assert.equal(allowed.statusCode, 200);
-  assert.ok(allowed.json().code);
+  assert.ok(allowed.json().invite.code);
   await app.close();
 });
 

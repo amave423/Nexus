@@ -1,15 +1,26 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { api, connect, setToken } from "./api.js";
+  import { prefs } from "./prefs.js";
+  import { playSound } from "./sound.js";
+  import { toast } from "./toasts.js";
   import Logo from "./Logo.svelte";
+  import Avatar from "./Avatar.svelte";
   import Room from "./Room.svelte";
+  import Settings from "./Settings.svelte";
+  import ServerSettings from "./ServerSettings.svelte";
+  import Toasts from "./Toasts.svelte";
   import { createVoiceClient } from "./voice.js";
 
   export let user;
   export let onLogout;
+  export let onUser = () => {};
 
   let channels = [];
   let members = [];
+  let roles = [];
+  let space = null;
+  let permissions = [];
   let online = new Set();
   let current = null;
   let messages = [];
@@ -19,8 +30,15 @@
   let typingTimer = null;
   let socket = null;
   let listEl = null;
+  let inputEl = null;
   let lastTypingSent = 0;
   let voice = null;
+  let showSettings = false;
+  let showServer = false;
+  let showMembers = false;
+  let sideOpen = false;
+  let unread = new Set();
+
   const emptyVoice = {
     channelId: null,
     joining: false,
@@ -39,7 +57,6 @@
   let vs = emptyVoice;
   let unsubscribe = null;
 
-  const initials = (name) => name.slice(0, 2).toUpperCase();
   const time = (ts) =>
     new Date(ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 
@@ -50,9 +67,14 @@
     const back = textList[0];
     if (back) openChannel(back);
   }
+  $: onlineMembers = members.filter((m) => online.has(m.id));
+  $: offlineMembers = members.filter((m) => !online.has(m.id));
 
   async function openChannel(channel) {
+    sideOpen = false;
     current = channel;
+    unread.delete(channel.id);
+    unread = new Set(unread);
     const data = await api(`/api/channels/${channel.id}/messages`);
     messages = data.messages;
     scrollDown();
@@ -91,6 +113,7 @@
   }
 
   async function openVoice(channel) {
+    sideOpen = false;
     current = channel;
     messages = [];
     if (!voice) return;
@@ -99,6 +122,28 @@
       await voice.join(channel.id);
     } catch {
       /* ошибка показана в комнате */
+    }
+  }
+
+  function notifyMessage(message) {
+    if (message.userId === user.id) return;
+    const pref = prefs.get();
+    if (pref.dnd) return;
+    const elsewhere = !current || current.id !== message.channelId || document.hidden;
+    if (!elsewhere) return;
+    if (pref.notifSound) playSound(pref.sound, pref.volume);
+    toast({
+      name: message.name,
+      text: message.text,
+      color: message.color,
+      avatar: message.avatar,
+    });
+    if (pref.notifDesktop && "Notification" in window && Notification.permission === "granted") {
+      new Notification(message.name, { body: message.text });
+    }
+    if (current?.id !== message.channelId) {
+      unread.add(message.channelId);
+      unread = new Set(unread);
     }
   }
 
@@ -114,6 +159,7 @@
           scrollDown();
         }
       }
+      notifyMessage(event.message);
       return;
     }
     if (event.t === "presence") {
@@ -126,20 +172,90 @@
         clearTimeout(typingTimer);
         typingTimer = setTimeout(() => (typingName = ""), 2600);
       }
+      return;
     }
+    if (event.t === "member.update") {
+      const exists = members.some((m) => m.id === event.member.id);
+      members = exists
+        ? members.map((m) => (m.id === event.member.id ? event.member : m))
+        : [...members, event.member];
+      if (event.member.id === user.id) {
+        user = { ...user, ...event.member };
+        onUser(user);
+      }
+      return;
+    }
+    if (event.t === "member.remove") {
+      members = members.filter((m) => m.id !== event.userId);
+      return;
+    }
+    if (event.t === "roles.update") {
+      roles = event.roles;
+      return;
+    }
+    if (event.t === "space.update") {
+      space = event.space;
+      return;
+    }
+    if (event.t === "space.deleted") {
+      logout();
+    }
+  }
+
+  function hotkeyAction(combo) {
+    const keys = prefs.get().keys;
+    for (const [action, value] of Object.entries(keys)) {
+      if (value === combo) return action;
+    }
+    return null;
+  }
+
+  function onHotkey(e) {
+    const tag = e.target?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") {
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    const parts = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    if (e.metaKey) parts.push("Meta");
+    if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+    const named = { " ": "Space", Escape: "Esc", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" };
+    parts.push(named[e.key] || (e.key.length === 1 ? e.key.toUpperCase() : e.key));
+    const action = hotkeyAction(parts.join("+"));
+    if (!action) return;
+    e.preventDefault();
+    if (action === "mic") voice?.toggleMic();
+    if (action === "deaf") voice?.toggleDeafen();
+    if (action === "cam") voice?.toggleCamera().catch(() => {});
+    if (action === "screen") voice?.toggleScreen().catch(() => {});
+    if (action === "leave") voice?.leave();
+    if (action === "search") inputEl?.focus();
   }
 
   onMount(async () => {
     const boot = await api("/api/bootstrap");
     channels = boot.channels;
     members = boot.members;
+    roles = boot.roles || [];
+    space = boot.space || null;
+    permissions = boot.permissions || [];
     online = new Set(boot.online);
     const first = boot.channels.find((c) => c.type === "text");
     if (first) await openChannel(first);
     socket = connect(handleEvent, (s) => (status = s));
-    voice = createVoiceClient({ send: (payload) => socket.send(payload) });
+    voice = createVoiceClient({
+      send: (payload) => socket.send(payload),
+      settings: () => prefs.get(),
+    });
     unsubscribe = voice.store.subscribe((value) => (vs = value));
     window.__nexusVoice = voice;
+    window.addEventListener("keydown", onHotkey);
+    if (prefs.get().notifDesktop && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
   });
 
   onDestroy(() => {
@@ -147,6 +263,7 @@
     unsubscribe?.();
     socket?.close();
     clearTimeout(typingTimer);
+    window.removeEventListener("keydown", onHotkey);
   });
 
   async function logout() {
@@ -158,10 +275,17 @@
     setToken(null);
     onLogout();
   }
+
+  function applyUser(updated) {
+    user = updated;
+    onUser(updated);
+  }
 </script>
 
+<svelte:window on:keydown={onHotkey} />
+
 <div class="shell">
-  <aside class="side">
+  <aside class="side" class:open={sideOpen}>
     <Logo />
     <div class="rail">
       <div class="group">текст</div>
@@ -173,6 +297,7 @@
         >
           <span class="hash">#</span>
           <span>{channel.name}</span>
+          {#if unread.has(channel.id)}<i class="unread"></i>{/if}
         </button>
       {/each}
 
@@ -193,20 +318,35 @@
       {/each}
     </div>
 
+    <div class="servers">
+      {#each [space].filter(Boolean) as s (s.id)}
+        <button class="coin" title={s.name} on:click={() => (showServer = true)}>
+          {s.name.slice(0, 1).toUpperCase()}
+        </button>
+      {/each}
+    </div>
+
     <div class="me">
-      <div class="avatar" style="background:{user.color || '#c8ff3d'}">{initials(user.name)}</div>
-      <div class="who">
-        <b>{user.name}</b>
-        <span class:online={status === "online"}>
-          {status === "online" ? "в сети" : "нет связи"}
+      <button class="me-btn" on:click={() => (showSettings = true)}>
+        <Avatar name={user.name} color={user.color} avatar={user.avatar} size={32} radius={10} />
+        <span class="who">
+          <b>{user.name}</b>
+          <span class:online={status === "online"}>
+            {status === "online" ? "в сети" : "нет связи"}
+          </span>
         </span>
-      </div>
+      </button>
       <button class="logout" on:click={logout}>выйти</button>
     </div>
   </aside>
 
   <section class="main">
     <header class="head">
+      <button class="burger" aria-label="Каналы" on:click={() => (sideOpen = !sideOpen)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+      </button>
       <h2>{current ? `${inRoom ? "◍" : "#"}${current.name}` : "Nexus"}</h2>
       <span class="topic">{current?.topic || ""}</span>
       <div class="spacer"></div>
@@ -214,6 +354,17 @@
         <span class="dot" class:off={status !== "online"}></span>
         {online.size} в сети
       </div>
+      <button class="icon-btn" class:on={showMembers} aria-label="Участники" on:click={() => (showMembers = !showMembers)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <circle cx="9" cy="8" r="3.2" />
+          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+          <path d="M16 5.5a3 3 0 0 1 0 5.6" />
+          <path d="M17.5 14.2A5.5 5.5 0 0 1 20.5 19" />
+        </svg>
+      </button>
+      <button class="profile-btn" aria-label="Настройки" on:click={() => { sideOpen = false; showSettings = true; }}>
+        <Avatar name={user.name} color={user.color} avatar={user.avatar} size={28} radius={9} />
+      </button>
     </header>
 
     {#if inRoom}
@@ -225,9 +376,7 @@
       {/if}
       {#each messages as message (message.id)}
         <div class="msg">
-          <div class="avatar" style="background:{message.color || '#c8ff3d'}">
-            {initials(message.name)}
-          </div>
+          <Avatar name={message.name} color={message.color} avatar={message.avatar} size={38} radius={12} />
           <div>
             <div class="msg-head">
               <b>{message.name}</b>
@@ -243,6 +392,7 @@
 
     <form class="composer" on:submit|preventDefault={send}>
       <input
+        bind:this={inputEl}
         bind:value={text}
         on:keydown={onKey}
         placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
@@ -252,4 +402,68 @@
     </form>
     {/if}
   </section>
+
+  {#if sideOpen}
+    <button class="scrim" aria-label="Закрыть каналы" on:click={() => (sideOpen = false)}></button>
+  {/if}
+
+  {#if showMembers}
+    <aside class="members">
+      <div class="members-head">участники · {members.length}</div>
+      {#if onlineMembers.length}
+        <div class="members-grp">в сети — {onlineMembers.length}</div>
+        {#each onlineMembers as member (member.id)}
+          <div class="member">
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={30} radius={9} />
+            <div class="member-who">
+              <b style="color:{member.roles[0]?.color || 'inherit'}">{member.name}</b>
+              {#if member.roles.length}
+                <span>{member.roles.map((r) => r.name).join(" · ")}</span>
+              {/if}
+            </div>
+            <i class="member-dot"></i>
+          </div>
+        {/each}
+      {/if}
+      {#if offlineMembers.length}
+        <div class="members-grp">не в сети — {offlineMembers.length}</div>
+        {#each offlineMembers as member (member.id)}
+          <div class="member off">
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={30} radius={9} />
+            <div class="member-who">
+              <b>{member.name}</b>
+              {#if member.roles.length}
+                <span>{member.roles.map((r) => r.name).join(" · ")}</span>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      {/if}
+    </aside>
+  {/if}
 </div>
+
+<Toasts />
+
+{#if showSettings}
+  <Settings
+    {user}
+    on:close={() => (showSettings = false)}
+    on:user={(e) => applyUser(e.detail)}
+  />
+{/if}
+
+{#if showServer && space}
+  <ServerSettings
+    {space}
+    {roles}
+    {members}
+    {permissions}
+    {user}
+    on:close={() => (showServer = false)}
+    on:space={(e) => (space = e.detail)}
+    on:roles={(e) => (roles = e.detail)}
+    on:members={(e) => (members = e.detail)}
+    on:deleted={logout}
+  />
+{/if}

@@ -29,7 +29,7 @@
 {#if !ready}
   <div class="login"><div class="empty">Загрузка…</div></div>
 {:else if user}
-  <Chat {user} onLogout={logout} />
+  <Chat {user} onLogout={logout} onUser={(u) => (user = u)} />
 {:else}
   <Login onDone={(u) => (user = u)} />
 {/if}

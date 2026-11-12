@@ -3,8 +3,17 @@ import websocket from "@fastify/websocket";
 import { hashCode, verifyCode, newToken, newInvite } from "./auth.js";
 import { Hub } from "./realtime.js";
 import { Voice } from "./voice.js";
+import { seedRoles } from "./db.js";
 
 const COLORS = ["#c8ff3d", "#6fe3ff", "#ff6b8a", "#ffb454", "#b18cff", "#7dffb0"];
+const STATUSES = ["online", "idle", "dnd", "invisible"];
+const PERMISSIONS = ["manage_server", "manage_roles", "manage_members", "manage_invites", "send_messages"];
+
+const BASE_PERMISSIONS = {
+  owner: PERMISSIONS,
+  admin: ["manage_roles", "manage_members", "manage_invites", "send_messages"],
+  member: ["send_messages"],
+};
 
 export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
   const app = Fastify({ logger });
@@ -55,12 +64,14 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     name: u.name,
     avatar: u.avatar,
     color: u.color,
+    about: u.about || "",
+    status: u.status || "online",
   });
 
   const spacesOf = (userId) =>
     db
       .prepare(
-        `SELECT s.id, s.name, m.role FROM spaces s
+        `SELECT s.id, s.name, s.description, s.owner_id AS ownerId, m.role FROM spaces s
          JOIN space_members m ON m.space_id = s.id
          WHERE m.user_id = ? ORDER BY s.id`
       )
@@ -74,13 +85,55 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       )
       .all(spaceId);
 
+  const parseRole = (row) => ({ ...row, permissions: JSON.parse(row.permissions || "[]") });
+
+  const rolesOf = (spaceId) =>
+    db
+      .prepare(
+        `SELECT id, name, color, position, permissions FROM roles
+         WHERE space_id = ? ORDER BY position, id`
+      )
+      .all(spaceId)
+      .map(parseRole);
+
+  const rolesOfUser = (spaceId, userId) =>
+    db
+      .prepare(
+        `SELECT r.id, r.name, r.color, r.position, r.permissions FROM member_roles mr
+         JOIN roles r ON r.id = mr.role_id
+         WHERE mr.space_id = ? AND mr.user_id = ? ORDER BY r.position, r.id`
+      )
+      .all(spaceId, userId)
+      .map(parseRole);
+
+  const baseRole = (spaceId, userId) =>
+    db
+      .prepare("SELECT role FROM space_members WHERE space_id = ? AND user_id = ?")
+      .get(spaceId, userId)?.role || null;
+
+  const permissionsOf = (spaceId, userId) => {
+    const base = baseRole(spaceId, userId);
+    if (!base) return [];
+    const set = new Set(BASE_PERMISSIONS[base] || []);
+    for (const role of rolesOfUser(spaceId, userId)) {
+      for (const perm of role.permissions) set.add(perm);
+    }
+    return [...set];
+  };
+
+  const can = (spaceId, userId, perm) => permissionsOf(spaceId, userId).includes(perm);
+
   const membersOf = (spaceId) =>
     db
       .prepare(
-        `SELECT u.id, u.name, u.avatar, u.color, m.role FROM space_members m
-         JOIN users u ON u.id = m.user_id WHERE m.space_id = ? ORDER BY m.joined_at`
+        `SELECT u.id, u.name, u.avatar, u.color, u.about, u.status, m.role, m.joined_at AS joinedAt
+         FROM space_members m JOIN users u ON u.id = m.user_id
+         WHERE m.space_id = ? ORDER BY m.joined_at`
       )
-      .all(spaceId);
+      .all(spaceId)
+      .map((m) => ({ ...m, roles: rolesOfUser(spaceId, m.id) }));
+
+  const memberOf = (spaceId, userId) => membersOf(spaceId).find((m) => m.id === userId) || null;
 
   const messageRow = (id) =>
     db
@@ -99,6 +152,22 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       )
       .get(channelId, userId);
 
+  const spaceOfUser = (userId) => spacesOf(userId)[0] || null;
+
+  const inviteRow = (code) =>
+    db
+      .prepare(
+        `SELECT i.code, i.space_id AS spaceId, i.max_uses AS maxUses, i.uses,
+                i.expires_at AS expiresAt, i.revoked, i.created_at AS createdAt,
+                u.name AS createdBy
+         FROM invites i LEFT JOIN users u ON u.id = i.created_by WHERE i.code = ?`
+      )
+      .get(code);
+
+  const inviteAlive = (inv) =>
+    inv && !inv.revoked && (!inv.expiresAt || inv.expiresAt > Date.now()) &&
+    (inv.maxUses === 0 || inv.uses < inv.maxUses);
+
   /* ---------- auth ---------- */
 
   app.post("/api/auth/register", async (req, reply) => {
@@ -109,10 +178,8 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     if (String(code || "").length < 6)
       return reply.code(400).send({ error: "code_short" });
 
-    const inv = db.prepare("SELECT * FROM invites WHERE code = ?").get(String(invite || ""));
-    if (!inv) return reply.code(403).send({ error: "invite_invalid" });
-    if (inv.max_uses > 0 && inv.uses >= inv.max_uses)
-      return reply.code(403).send({ error: "invite_used" });
+    const inv = inviteRow(String(invite || ""));
+    if (!inviteAlive(inv)) return reply.code(403).send({ error: "invite_invalid" });
 
     const taken = db.prepare("SELECT 1 FROM users WHERE name_lc = ?").get(cleanName.toLowerCase());
     if (taken) return reply.code(409).send({ error: "name_taken" });
@@ -122,18 +189,20 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
     const info = db
       .prepare(
-        `INSERT INTO users (name, name_lc, code_hash, code_salt, color, created_at, last_seen)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO users (name, name_lc, code_hash, code_salt, color, about, status, created_at, last_seen)
+         VALUES (?, ?, ?, ?, ?, '', 'online', ?, ?)`
       )
       .run(cleanName, cleanName.toLowerCase(), hash, salt, color, now, now);
     const userId = Number(info.lastInsertRowid);
 
     const memberCount = db
       .prepare("SELECT COUNT(*) AS n FROM space_members WHERE space_id = ?")
-      .get(inv.space_id).n;
+      .get(inv.spaceId).n;
+    const isOwner = memberCount === 0;
     db.prepare(
       "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)"
-    ).run(inv.space_id, userId, memberCount === 0 ? "owner" : "member", now);
+    ).run(inv.spaceId, userId, isOwner ? "owner" : "member", now);
+    if (isOwner) db.prepare("UPDATE spaces SET owner_id = ? WHERE id = ?").run(userId, inv.spaceId);
     db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(inv.code);
 
     const token = newToken();
@@ -143,6 +212,10 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       now
     );
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+    hub.broadcastSpace(inv.spaceId, {
+      t: "member.update",
+      member: memberOf(inv.spaceId, userId),
+    });
     return { token, user: publicUser(user) };
   });
 
@@ -176,18 +249,72 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     return { user: publicUser(req.user) };
   });
 
+  app.patch("/api/me", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const body = req.body || {};
+    const patch = {};
+
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (name.length < 2 || name.length > 24) return reply.code(400).send({ error: "name_length" });
+      const taken = db
+        .prepare("SELECT 1 FROM users WHERE name_lc = ? AND id <> ?")
+        .get(name.toLowerCase(), req.user.id);
+      if (taken) return reply.code(409).send({ error: "name_taken" });
+      patch.name = name;
+      patch.name_lc = name.toLowerCase();
+    }
+    if (body.about !== undefined) patch.about = String(body.about).slice(0, 280);
+    if (body.status !== undefined) {
+      if (!STATUSES.includes(body.status)) return reply.code(400).send({ error: "bad_status" });
+      patch.status = body.status;
+    }
+    if (body.avatar !== undefined) {
+      if (body.avatar === null) patch.avatar = null;
+      else {
+        const avatar = String(body.avatar);
+        if (!/^data:image\/(png|jpeg|webp);base64,/.test(avatar))
+          return reply.code(400).send({ error: "bad_avatar" });
+        if (avatar.length > 400_000) return reply.code(413).send({ error: "avatar_too_big" });
+        patch.avatar = avatar;
+      }
+    }
+
+    const keys = Object.keys(patch);
+    if (keys.length) {
+      db.prepare(`UPDATE users SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`).run(
+        ...keys.map((k) => patch[k]),
+        req.user.id
+      );
+    }
+
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+    const space = spaceOfUser(req.user.id);
+    if (space) {
+      hub.broadcastSpace(space.id, {
+        t: "member.update",
+        member: memberOf(space.id, req.user.id),
+      });
+    }
+    return { user: publicUser(user) };
+  });
+
   /* ---------- data ---------- */
 
   app.get("/api/bootstrap", async (req, reply) => {
     if (!auth(req, reply)) return;
     const spaces = spacesOf(req.user.id);
     const space = spaces[0];
-    if (!space) return { user: publicUser(req.user), spaces: [], channels: [], members: [] };
+    if (!space)
+      return { user: publicUser(req.user), spaces: [], channels: [], members: [], roles: [] };
     return {
       user: publicUser(req.user),
       spaces,
+      space,
       channels: channelsOf(space.id),
       members: membersOf(space.id),
+      roles: rolesOf(space.id),
+      permissions: permissionsOf(space.id, req.user.id),
       online: hub.onlineIds(),
     };
   });
@@ -215,6 +342,9 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     const channelId = Number(req.params.id);
     if (!canSeeChannel(req.user.id, channelId))
       return reply.code(403).send({ error: "forbidden" });
+    const spaceId = spaceOfChannel(channelId);
+    if (!can(spaceId, req.user.id, "send_messages"))
+      return reply.code(403).send({ error: "forbidden" });
     const text = String((req.body || {}).text || "").trim();
     if (!text) return reply.code(400).send({ error: "empty" });
     if (text.length > 4000) return reply.code(400).send({ error: "too_long" });
@@ -223,23 +353,217 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       .prepare("INSERT INTO messages (channel_id, user_id, text, created_at) VALUES (?, ?, ?, ?)")
       .run(channelId, req.user.id, text, Date.now());
     const message = messageRow(Number(info.lastInsertRowid));
-    hub.broadcastSpace(spaceOfChannel(channelId), { t: "message", message });
+    hub.broadcastSpace(spaceId, { t: "message", message });
     return { message };
+  });
+
+  /* ---------- space ---------- */
+
+  app.patch("/api/spaces/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!can(spaceId, req.user.id, "manage_server"))
+      return reply.code(403).send({ error: "forbidden" });
+    const body = req.body || {};
+    const patch = {};
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (name.length < 2 || name.length > 40) return reply.code(400).send({ error: "name_length" });
+      patch.name = name;
+    }
+    if (body.description !== undefined) patch.description = String(body.description).slice(0, 280);
+    const keys = Object.keys(patch);
+    if (keys.length) {
+      db.prepare(`UPDATE spaces SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`).run(
+        ...keys.map((k) => patch[k]),
+        spaceId
+      );
+    }
+    const space = spacesOf(req.user.id).find((s) => s.id === spaceId);
+    hub.broadcastSpace(spaceId, { t: "space.update", space });
+    return { space };
+  });
+
+  app.delete("/api/spaces/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    const space = db.prepare("SELECT owner_id AS ownerId FROM spaces WHERE id = ?").get(spaceId);
+    if (!space) return reply.code(404).send({ error: "not_found" });
+    if (space.ownerId !== req.user.id) return reply.code(403).send({ error: "forbidden" });
+    db.prepare("DELETE FROM spaces WHERE id = ?").run(spaceId);
+    hub.broadcastSpace(spaceId, { t: "space.deleted", spaceId });
+    return { ok: true };
+  });
+
+  /* ---------- roles ---------- */
+
+  app.get("/api/spaces/:id/roles", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!baseRole(spaceId, req.user.id)) return reply.code(403).send({ error: "forbidden" });
+    return { roles: rolesOf(spaceId) };
+  });
+
+  app.post("/api/spaces/:id/roles", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!can(spaceId, req.user.id, "manage_roles"))
+      return reply.code(403).send({ error: "forbidden" });
+    const body = req.body || {};
+    const name = String(body.name || "").trim();
+    if (name.length < 1 || name.length > 24) return reply.code(400).send({ error: "name_length" });
+    const color = /^#[0-9a-f]{6}$/i.test(body.color || "") ? body.color : "#6fe3ff";
+    const permissions = Array.isArray(body.permissions)
+      ? body.permissions.filter((p) => PERMISSIONS.includes(p))
+      : ["send_messages"];
+    const position = Number(body.position) || rolesOf(spaceId).length;
+    const info = db
+      .prepare(
+        "INSERT INTO roles (space_id, name, color, position, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(spaceId, name, color, position, JSON.stringify(permissions), Date.now());
+    const role = parseRole(
+      db
+        .prepare("SELECT id, name, color, position, permissions FROM roles WHERE id = ?")
+        .get(Number(info.lastInsertRowid))
+    );
+    hub.broadcastSpace(spaceId, { t: "roles.update", roles: rolesOf(spaceId) });
+    return { role };
+  });
+
+  app.patch("/api/roles/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const role = db.prepare("SELECT * FROM roles WHERE id = ?").get(Number(req.params.id));
+    if (!role) return reply.code(404).send({ error: "not_found" });
+    if (!can(role.space_id, req.user.id, "manage_roles"))
+      return reply.code(403).send({ error: "forbidden" });
+    const body = req.body || {};
+    const patch = {};
+    if (body.name !== undefined) {
+      const name = String(body.name).trim();
+      if (name.length < 1 || name.length > 24) return reply.code(400).send({ error: "name_length" });
+      patch.name = name;
+    }
+    if (body.color !== undefined) {
+      if (!/^#[0-9a-f]{6}$/i.test(body.color)) return reply.code(400).send({ error: "bad_color" });
+      patch.color = body.color;
+    }
+    if (body.position !== undefined) patch.position = Number(body.position) || 0;
+    if (body.permissions !== undefined) {
+      if (!Array.isArray(body.permissions)) return reply.code(400).send({ error: "bad_permissions" });
+      patch.permissions = JSON.stringify(body.permissions.filter((p) => PERMISSIONS.includes(p)));
+    }
+    const keys = Object.keys(patch);
+    if (keys.length) {
+      db.prepare(`UPDATE roles SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`).run(
+        ...keys.map((k) => patch[k]),
+        role.id
+      );
+    }
+    const updated = parseRole(
+      db.prepare("SELECT id, name, color, position, permissions FROM roles WHERE id = ?").get(role.id)
+    );
+    hub.broadcastSpace(role.space_id, { t: "roles.update", roles: rolesOf(role.space_id) });
+    return { role: updated };
+  });
+
+  app.delete("/api/roles/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const role = db.prepare("SELECT * FROM roles WHERE id = ?").get(Number(req.params.id));
+    if (!role) return reply.code(404).send({ error: "not_found" });
+    if (!can(role.space_id, req.user.id, "manage_roles"))
+      return reply.code(403).send({ error: "forbidden" });
+    db.prepare("DELETE FROM roles WHERE id = ?").run(role.id);
+    hub.broadcastSpace(role.space_id, { t: "roles.update", roles: rolesOf(role.space_id) });
+    return { ok: true };
+  });
+
+  /* ---------- members ---------- */
+
+  app.get("/api/spaces/:id/members", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!baseRole(spaceId, req.user.id)) return reply.code(403).send({ error: "forbidden" });
+    return { members: membersOf(spaceId) };
+  });
+
+  app.put("/api/spaces/:id/members/:userId/roles", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    if (!can(spaceId, req.user.id, "manage_members"))
+      return reply.code(403).send({ error: "forbidden" });
+    if (!baseRole(spaceId, userId)) return reply.code(404).send({ error: "not_found" });
+    const ids = Array.isArray((req.body || {}).roleIds) ? req.body.roleIds.map(Number) : [];
+    const valid = new Set(rolesOf(spaceId).map((r) => r.id));
+    db.prepare("DELETE FROM member_roles WHERE space_id = ? AND user_id = ?").run(spaceId, userId);
+    const ins = db.prepare(
+      "INSERT OR IGNORE INTO member_roles (space_id, user_id, role_id) VALUES (?, ?, ?)"
+    );
+    for (const id of ids) if (valid.has(id)) ins.run(spaceId, userId, id);
+    const member = memberOf(spaceId, userId);
+    hub.broadcastSpace(spaceId, { t: "member.update", member });
+    return { member };
+  });
+
+  app.delete("/api/spaces/:id/members/:userId", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    if (!can(spaceId, req.user.id, "manage_members"))
+      return reply.code(403).send({ error: "forbidden" });
+    const target = baseRole(spaceId, userId);
+    if (!target) return reply.code(404).send({ error: "not_found" });
+    if (target === "owner") return reply.code(403).send({ error: "owner" });
+    db.prepare("DELETE FROM space_members WHERE space_id = ? AND user_id = ?").run(spaceId, userId);
+    db.prepare("DELETE FROM member_roles WHERE space_id = ? AND user_id = ?").run(spaceId, userId);
+    hub.broadcastSpace(spaceId, { t: "member.remove", userId });
+    return { ok: true };
+  });
+
+  /* ---------- invites ---------- */
+
+  app.get("/api/spaces/:id/invites", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!can(spaceId, req.user.id, "manage_invites"))
+      return reply.code(403).send({ error: "forbidden" });
+    const invites = db
+      .prepare(
+        `SELECT i.code, i.max_uses AS maxUses, i.uses, i.expires_at AS expiresAt,
+                i.revoked, i.created_at AS createdAt, u.name AS createdBy
+         FROM invites i LEFT JOIN users u ON u.id = i.created_by
+         WHERE i.space_id = ? ORDER BY i.created_at DESC`
+      )
+      .all(spaceId);
+    return { invites };
   });
 
   app.post("/api/spaces/:id/invites", async (req, reply) => {
     if (!auth(req, reply)) return;
     const spaceId = Number(req.params.id);
-    const member = db
-      .prepare("SELECT role FROM space_members WHERE space_id = ? AND user_id = ?")
-      .get(spaceId, req.user.id);
-    if (!member || !["owner", "admin"].includes(member.role))
+    if (!can(spaceId, req.user.id, "manage_invites"))
       return reply.code(403).send({ error: "forbidden" });
+    const body = req.body || {};
+    const maxUses = Math.max(0, Math.min(Number(body.maxUses) || 0, 1000));
+    const hours = Math.max(0, Math.min(Number(body.expiresInHours) || 0, 24 * 365));
     const code = newInvite();
+    const now = Date.now();
     db.prepare(
-      "INSERT INTO invites (code, space_id, created_by, max_uses, uses, created_at) VALUES (?, ?, ?, ?, 0, ?)"
-    ).run(code, spaceId, req.user.id, Number((req.body || {}).maxUses) || 0, Date.now());
-    return { code };
+      `INSERT INTO invites (code, space_id, created_by, max_uses, uses, expires_at, revoked, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, 0, ?)`
+    ).run(code, spaceId, req.user.id, maxUses, hours ? now + hours * 3600_000 : null, now);
+    return { invite: inviteRow(code) };
+  });
+
+  app.delete("/api/invites/:code", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const inv = inviteRow(req.params.code);
+    if (!inv) return reply.code(404).send({ error: "not_found" });
+    if (!can(inv.spaceId, req.user.id, "manage_invites"))
+      return reply.code(403).send({ error: "forbidden" });
+    db.prepare("UPDATE invites SET revoked = 1 WHERE code = ?").run(inv.code);
+    return { ok: true };
   });
 
   app.get("/api/health", async () => ({ ok: true, uptime: process.uptime() }));
@@ -254,7 +578,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
         socket.close(4001, "unauthorized");
         return;
       }
-      const space = spacesOf(user.id)[0];
+      const space = spaceOfUser(user.id);
       if (!space) {
         socket.close(4003, "no_space");
         return;
@@ -373,16 +697,20 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
   }
 
   app.decorate("ensureInvite", () => {
-    const existing = db.prepare("SELECT code FROM invites LIMIT 1").get();
+    const existing = db
+      .prepare("SELECT code FROM invites WHERE revoked = 0 AND (expires_at IS NULL OR expires_at > ?) LIMIT 1")
+      .get(Date.now());
     if (existing) return existing.code;
     const space = db.prepare("SELECT id FROM spaces ORDER BY id LIMIT 1").get();
     if (!space) return null;
     const code = newInvite();
     db.prepare(
-      "INSERT INTO invites (code, space_id, created_by, max_uses, uses, created_at) VALUES (?, ?, NULL, 0, 0, ?)"
+      "INSERT INTO invites (code, space_id, created_by, max_uses, uses, expires_at, revoked, created_at) VALUES (?, ?, NULL, 0, 0, NULL, 0, ?)"
     ).run(code, space.id, Date.now());
     return code;
   });
+
+  app.decorate("seedRoles", (spaceId) => seedRoles(db, spaceId));
 
   return app;
 }
