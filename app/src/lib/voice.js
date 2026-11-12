@@ -71,8 +71,8 @@ export function createVoiceClient({ send }) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(req);
-        reject(new Error("timeout"));
-      }, 15000);
+        reject(new Error(`timeout:${type}`));
+      }, 20000);
       pending.set(req, {
         resolve: (value) => {
           clearTimeout(timer);

@@ -276,7 +276,7 @@ export class Voice {
   async produce(userId, { transportId, kind, rtpParameters, source, paused }) {
     const peer = this.peer(userId);
     if (kind !== "audio" && kind !== "video") throw new VoiceError("bad_kind");
-    const src = source === "screen" ? "screen" : "camera";
+    const src = source === "screen" ? "screen" : kind === "audio" ? "mic" : "camera";
     if (kind === "audio" && src === "screen") throw new VoiceError("bad_source");
     const channel = this.channels.get(peer.channelId);
     for (const producer of peer.producers.values()) {

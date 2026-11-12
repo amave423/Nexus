@@ -39,12 +39,16 @@ export function connect(onEvent, onStatus) {
   let socket = null;
   let closed = false;
   let retry = 0;
+  let queue = [];
 
   const open = () => {
     socket = new WebSocket(url);
     socket.onopen = () => {
       retry = 0;
       onStatus?.("online");
+      const waiting = queue;
+      queue = [];
+      for (const text of waiting) socket.send(text);
     };
     socket.onmessage = (event) => {
       try {
@@ -65,7 +69,9 @@ export function connect(onEvent, onStatus) {
 
   return {
     send(payload) {
-      if (socket && socket.readyState === 1) socket.send(JSON.stringify(payload));
+      const text = typeof payload === "string" ? payload : JSON.stringify(payload);
+      if (socket && socket.readyState === 1) socket.send(text);
+      else queue.push(text);
     },
     close() {
       closed = true;
