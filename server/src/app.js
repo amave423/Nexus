@@ -2,15 +2,25 @@ import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import { hashCode, verifyCode, newToken, newInvite } from "./auth.js";
 import { Hub } from "./realtime.js";
+import { Voice } from "./voice.js";
 
 const COLORS = ["#c8ff3d", "#6fe3ff", "#ff6b8a", "#ffb454", "#b18cff", "#7dffb0"];
 
-export function buildApp({ db, logger = false }) {
+export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
   const app = Fastify({ logger });
   const hub = new Hub();
 
+  const spaceOfChannel = (channelId) =>
+    db.prepare("SELECT space_id AS spaceId FROM channels WHERE id = ?").get(channelId)?.spaceId;
+
+  const voice = injectedVoice || new Voice();
+  voice.sendTo = (userId, payload) => hub.sendTo(userId, payload);
+  voice.broadcastSpace = (spaceId, payload) => hub.broadcastSpace(spaceId, payload);
+  voice.spaceOfChannel = spaceOfChannel;
+
   app.decorate("db", db);
   app.decorate("hub", hub);
+  app.decorate("voice", voice);
 
   app.register(websocket);
 
@@ -78,9 +88,6 @@ export function buildApp({ db, logger = false }) {
          FROM messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?`
       )
       .get(id);
-
-  const spaceOfChannel = (channelId) =>
-    db.prepare("SELECT space_id AS spaceId FROM channels WHERE id = ?").get(channelId)?.spaceId;
 
   const canSeeChannel = (userId, channelId) =>
     !!db
@@ -262,19 +269,36 @@ export function buildApp({ db, logger = false }) {
         } catch {
           return;
         }
-        handleSocket(msg, user, space, socket);
+        handleSocket(msg, user, space, socket).catch((error) => {
+          console.error("[nexus] socket handler failed", error);
+        });
       });
 
-      socket.on("close", () => {
+      socket.on("close", async () => {
         hub.remove(user.id, socket);
-        hub.leaveVoice(user.id);
+        if (!hub.sockets.has(user.id)) {
+          const channelId = await voice.leave(user.id);
+          if (channelId) voice.roster(channelId);
+        }
         hub.broadcastSpace(space.id, { t: "presence", online: hub.onlineIds() });
-        hub.broadcastSpace(space.id, { t: "voice.roster", channelId: null, members: [] });
       });
     });
   });
 
-  function handleSocket(msg, user, space, socket) {
+  async function handleSocket(msg, user, space, socket) {
+    const reply = (payload) => {
+      if (!msg.req) return;
+      socket.send(JSON.stringify({ t: "voice.reply", req: msg.req, ...payload }));
+    };
+    const call = async (fn) => {
+      try {
+        const data = (await fn()) || {};
+        reply({ ok: true, ...data });
+      } catch (error) {
+        reply({ error: error.code || "voice_failed" });
+      }
+    };
+
     switch (msg.t) {
       case "typing": {
         const channelId = Number(msg.channelId);
@@ -288,44 +312,57 @@ export function buildApp({ db, logger = false }) {
       }
       case "voice.join": {
         const channelId = Number(msg.channelId);
-        if (!canSeeChannel(user.id, channelId)) return;
-        hub.joinVoice(user.id, channelId, { muted: !!msg.muted, cam: false, stream: false });
-        hub.broadcastSpace(space.id, {
-          t: "voice.roster",
-          channelId,
-          members: hub.voiceMembers(channelId),
-        });
+        const channel = db
+          .prepare("SELECT space_id AS spaceId, type FROM channels WHERE id = ?")
+          .get(channelId);
+        if (!channel || channel.spaceId !== space.id || !canSeeChannel(user.id, channelId)) {
+          reply({ error: "forbidden" });
+          return;
+        }
+        if (channel.type !== "voice") {
+          reply({ error: "not_voice" });
+          return;
+        }
+        await call(() => voice.join(user.id, channelId));
         return;
       }
       case "voice.leave": {
-        const channelId = hub.leaveVoice(user.id);
-        if (channelId)
-          hub.broadcastSpace(space.id, {
-            t: "voice.roster",
-            channelId,
-            members: hub.voiceMembers(channelId),
-          });
+        await call(async () => {
+          const channelId = await voice.leave(user.id);
+          if (channelId) voice.roster(channelId);
+          return { channelId };
+        });
         return;
       }
+      case "voice.createTransport":
+        await call(() => voice.createTransport(user.id, msg.direction));
+        return;
+      case "voice.connectTransport":
+        await call(() => voice.connectTransport(user.id, msg.transportId, msg.dtlsParameters));
+        return;
+      case "voice.produce":
+        await call(() => voice.produce(user.id, msg));
+        return;
+      case "voice.consume":
+        await call(() => voice.consume(user.id, msg));
+        return;
+      case "voice.resumeConsumer":
+        await call(() => voice.resumeConsumer(user.id, msg.consumerId));
+        return;
+      case "voice.pauseProducer":
+        await call(() => voice.setProducerPaused(user.id, msg.producerId, !!msg.paused));
+        return;
+      case "voice.closeProducer":
+        await call(() => voice.closeProducer(user.id, msg.producerId));
+        return;
       case "voice.state": {
-        const channelId = hub.voiceChannelOf(user.id);
-        if (!channelId) return;
-        hub.setVoiceState(user.id, {
+        if (!voice.channelOf(user.id)) return;
+        voice.setState(user.id, {
           muted: !!msg.muted,
+          deafened: !!msg.deafened,
           cam: !!msg.cam,
           stream: !!msg.stream,
         });
-        hub.broadcastSpace(space.id, {
-          t: "voice.roster",
-          channelId,
-          members: hub.voiceMembers(channelId),
-        });
-        return;
-      }
-      case "voice.signal": {
-        const to = Number(msg.to);
-        if (!to) return;
-        hub.sendTo(to, { t: "voice.signal", from: user.id, data: msg.data });
         return;
       }
       default:

@@ -21,6 +21,13 @@ if (!hasSpace) {
 
 const app = buildApp({ db, logger: false });
 
+try {
+  await app.voice.init();
+  console.log("[nexus] голосовой сервер готов");
+} catch (error) {
+  console.error("[nexus] голос не поднялся:", error.message);
+}
+
 if (existsSync(webDir)) {
   app.register(fastifyStatic, { root: webDir, prefix: "/" });
   app.setNotFoundHandler((req, reply) => {
@@ -38,6 +45,7 @@ console.log(`[nexus] слушаю http://${host}:${port}`);
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
+    await app.voice.close();
     await app.close();
     db.close();
     process.exit(0);

@@ -2,7 +2,6 @@ export class Hub {
   constructor() {
     this.sockets = new Map();
     this.spaceOf = new Map();
-    this.voice = new Map();
   }
 
   add(userId, socket, spaceId) {
@@ -45,43 +44,4 @@ export class Hub {
     }
   }
 
-  joinVoice(userId, channelId, state = {}) {
-    this.voice.set(userId, {
-      channelId,
-      muted: !!state.muted,
-      cam: !!state.cam,
-      stream: !!state.stream,
-    });
-  }
-
-  leaveVoice(userId) {
-    const entry = this.voice.get(userId);
-    this.voice.delete(userId);
-    return entry ? entry.channelId : null;
-  }
-
-  voiceChannelOf(userId) {
-    const entry = this.voice.get(userId);
-    return entry ? entry.channelId : null;
-  }
-
-  setVoiceState(userId, patch) {
-    const entry = this.voice.get(userId);
-    if (!entry) return;
-    Object.assign(entry, patch);
-  }
-
-  voiceMembers(channelId) {
-    const out = [];
-    for (const [userId, entry] of this.voice) {
-      if (entry.channelId !== channelId) continue;
-      out.push({
-        userId,
-        muted: entry.muted,
-        cam: entry.cam,
-        stream: entry.stream,
-      });
-    }
-    return out;
-  }
 }
