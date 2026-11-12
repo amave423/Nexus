@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from "svelte";
   import { api, connect, setToken } from "./api.js";
   import Logo from "./Logo.svelte";
+  import Room from "./Room.svelte";
+  import { createVoiceClient } from "./voice.js";
 
   export let user;
   export let onLogout;
@@ -18,6 +20,24 @@
   let socket = null;
   let listEl = null;
   let lastTypingSent = 0;
+  let voice = null;
+  const emptyVoice = {
+    channelId: null,
+    joining: false,
+    joined: false,
+    error: null,
+    muted: false,
+    deafened: false,
+    cam: false,
+    stream: false,
+    micLevel: 0,
+    rosters: new Map(),
+    remote: new Map(),
+    local: {},
+    levels: new Map(),
+  };
+  let vs = emptyVoice;
+  let unsubscribe = null;
 
   const initials = (name) => name.slice(0, 2).toUpperCase();
   const time = (ts) =>
@@ -25,6 +45,11 @@
 
   $: textList = channels.filter((c) => c.type === "text");
   $: voiceList = channels.filter((c) => c.type === "voice");
+  $: inRoom = current?.type === "voice";
+  $: if (voice && vs.channelId === null && !vs.joining && inRoom) {
+    const back = textList[0];
+    if (back) openChannel(back);
+  }
 
   async function openChannel(channel) {
     current = channel;
@@ -65,7 +90,23 @@
     }
   }
 
+  async function openVoice(channel) {
+    current = channel;
+    messages = [];
+    if (!voice) return;
+    if (vs.channelId === channel.id && vs.joined) return;
+    try {
+      await voice.join(channel.id);
+    } catch {
+      /* ошибка показана в комнате */
+    }
+  }
+
   function handleEvent(event) {
+    if (event.t.startsWith("voice.")) {
+      voice?.handle(event);
+      return;
+    }
     if (event.t === "message") {
       if (current && event.message.channelId === current.id) {
         if (!messages.some((m) => m.id === event.message.id)) {
@@ -96,9 +137,14 @@
     const first = boot.channels.find((c) => c.type === "text");
     if (first) await openChannel(first);
     socket = connect(handleEvent, (s) => (status = s));
+    voice = createVoiceClient({ send: (payload) => socket.send(payload) });
+    unsubscribe = voice.store.subscribe((value) => (vs = value));
+    window.__nexusVoice = voice;
   });
 
   onDestroy(() => {
+    voice?.leave();
+    unsubscribe?.();
     socket?.close();
     clearTimeout(typingTimer);
   });
@@ -132,9 +178,17 @@
 
       <div class="group">голос</div>
       {#each voiceList as channel (channel.id)}
-        <button class="chan">
+        <button
+          class="chan"
+          class:active={current?.id === channel.id}
+          class:live={vs.channelId === channel.id}
+          on:click={() => openVoice(channel)}
+        >
           <span class="hash">◍</span>
           <span>{channel.name}</span>
+          {#if (vs.rosters.get(channel.id) || []).length}
+            <i class="chan-count">{(vs.rosters.get(channel.id) || []).length}</i>
+          {/if}
         </button>
       {/each}
     </div>
@@ -153,7 +207,7 @@
 
   <section class="main">
     <header class="head">
-      <h2>{current ? `#${current.name}` : "Nexus"}</h2>
+      <h2>{current ? `${inRoom ? "◍" : "#"}${current.name}` : "Nexus"}</h2>
       <span class="topic">{current?.topic || ""}</span>
       <div class="spacer"></div>
       <div class="pill">
@@ -162,6 +216,9 @@
       </div>
     </header>
 
+    {#if inRoom}
+      <Room channel={current} {user} people={members} {vs} {voice} />
+    {:else}
     <div class="messages" bind:this={listEl}>
       {#if messages.length === 0}
         <div class="empty">Тут пока тихо. Напиши первым.</div>
@@ -193,5 +250,6 @@
       />
       <button class="send" type="submit" aria-label="Отправить">↑</button>
     </form>
+    {/if}
   </section>
 </div>

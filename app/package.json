@@ -44,5 +44,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "dependencies": {
+    "mediasoup-client": "^3.26.0"
   }
 }

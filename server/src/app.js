@@ -17,6 +17,8 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
   voice.sendTo = (userId, payload) => hub.sendTo(userId, payload);
   voice.broadcastSpace = (spaceId, payload) => hub.broadcastSpace(spaceId, payload);
   voice.spaceOfChannel = spaceOfChannel;
+  voice.profileOf = (userId) =>
+    db.prepare("SELECT id, name, avatar, color FROM users WHERE id = ?").get(userId) || null;
 
   app.decorate("db", db);
   app.decorate("hub", hub);

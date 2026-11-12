@@ -56,6 +56,7 @@ export class Voice {
     this.sendTo = options.sendTo || (() => {});
     this.broadcastSpace = options.broadcastSpace || (() => {});
     this.spaceOfChannel = options.spaceOfChannel || (() => null);
+    this.profileOf = options.profileOf || (() => null);
 
     this.channels = new Map();
     this.peers = new Map();
@@ -153,14 +154,20 @@ export class Voice {
   members(channelId) {
     const channel = this.channels.get(channelId);
     if (!channel) return [];
-    return [...channel.peers.values()].map((peer) => ({
-      userId: peer.userId,
-      muted: peer.state.muted,
-      deafened: peer.state.deafened,
-      cam: peer.state.cam,
-      stream: peer.state.stream,
-      speaking: channel.speaking.has(peer.userId),
-    }));
+    return [...channel.peers.values()].map((peer) => {
+      const profile = (this.profileOf && this.profileOf(peer.userId)) || {};
+      return {
+        userId: peer.userId,
+        name: profile.name || null,
+        color: profile.color || null,
+        avatar: profile.avatar || null,
+        muted: peer.state.muted,
+        deafened: peer.state.deafened,
+        cam: peer.state.cam,
+        stream: peer.state.stream,
+        speaking: channel.speaking.has(peer.userId),
+      };
+    });
   }
 
   peer(userId) {
