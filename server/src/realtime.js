@@ -1,23 +1,36 @@
 export class Hub {
   constructor() {
     this.sockets = new Map();
-    this.spaceOf = new Map();
+    this.spaces = new Map();
   }
 
-  add(userId, socket, spaceId) {
+  add(userId, socket) {
     if (!this.sockets.has(userId)) this.sockets.set(userId, new Set());
     this.sockets.get(userId).add(socket);
-    this.spaceOf.set(userId, spaceId);
+  }
+
+  setSpaces(userId, spaceIds) {
+    this.spaces.set(userId, new Set(spaceIds));
+  }
+
+  spacesOf(userId) {
+    return this.spaces.get(userId) || new Set();
   }
 
   remove(userId, socket) {
     const set = this.sockets.get(userId);
-    if (!set) return;
+    if (!set) return false;
     set.delete(socket);
     if (set.size === 0) {
       this.sockets.delete(userId);
-      this.spaceOf.delete(userId);
+      this.spaces.delete(userId);
+      return true;
     }
+    return false;
+  }
+
+  isOnline(userId) {
+    return this.sockets.has(userId);
   }
 
   onlineIds() {
@@ -37,11 +50,10 @@ export class Hub {
     const raw = JSON.stringify(payload);
     for (const [userId, socketSet] of this.sockets) {
       if (userId === exceptUserId) continue;
-      if (this.spaceOf.get(userId) !== spaceId) continue;
+      if (!this.spacesOf(userId).has(spaceId)) continue;
       for (const socket of socketSet) {
         if (socket.readyState === 1) socket.send(raw);
       }
     }
   }
-
 }

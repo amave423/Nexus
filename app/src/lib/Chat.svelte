@@ -19,9 +19,16 @@
   let channels = [];
   let members = [];
   let roles = [];
+  let spaces = [];
   let space = null;
   let permissions = [];
   let online = new Set();
+  let statuses = {};
+  let showNewServer = false;
+  let newName = "";
+  let joinCode = "";
+  let newError = "";
+  let busy = false;
   let current = null;
   let messages = [];
   let text = "";
@@ -164,6 +171,7 @@
     }
     if (event.t === "presence") {
       online = new Set(event.online);
+      statuses = event.statuses || {};
       return;
     }
     if (event.t === "typing") {
@@ -195,12 +203,91 @@
     }
     if (event.t === "space.update") {
       space = event.space;
+      spaces = spaces.map((s) => (s.id === event.space.id ? { ...s, ...event.space } : s));
       return;
     }
     if (event.t === "space.deleted") {
-      logout();
+      spaces = spaces.filter((s) => s.id !== event.spaceId);
+      if (space?.id === event.spaceId) {
+        const next = spaces[0];
+        if (next) switchSpace(next);
+        else logout();
+      }
     }
   }
+
+  function applyState(state) {
+    space = state.space;
+    channels = state.channels;
+    members = state.members;
+    roles = state.roles || [];
+    permissions = state.permissions || [];
+    online = new Set(state.online);
+    statuses = state.statuses || {};
+    current = null;
+    messages = [];
+  }
+
+  async function switchSpace(target) {
+    if (space && target.id === space.id) {
+      showServer = true;
+      return;
+    }
+    if (vs.channelId) voice?.leave();
+    const state = await api(`/api/spaces/${target.id}/state`);
+    applyState(state);
+    const first = channels.find((c) => c.type === "text");
+    if (first) await openChannel(first);
+  }
+
+  async function createSpace() {
+    const name = newName.trim();
+    if (name.length < 2) {
+      newError = "Название от 2 символов";
+      return;
+    }
+    busy = true;
+    try {
+      const state = await api("/api/spaces", { method: "POST", body: { name } });
+      spaces = [...spaces, { ...state.space, channels: state.channels }];
+      showNewServer = false;
+      newName = "";
+      newError = "";
+      if (vs.channelId) voice?.leave();
+      applyState(state);
+      const first = channels.find((c) => c.type === "text");
+      if (first) await openChannel(first);
+    } catch (error) {
+      newError = error.code === "name_length" ? "Название от 2 до 40 символов" : "Не получилось создать";
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function joinSpace() {
+    const code = joinCode.trim();
+    if (!code) return;
+    busy = true;
+    try {
+      const state = await api(`/api/invites/${encodeURIComponent(code)}/join`, { method: "POST" });
+      if (!spaces.some((s) => s.id === state.space.id))
+        spaces = [...spaces, { ...state.space, channels: state.channels }];
+      showNewServer = false;
+      joinCode = "";
+      newError = "";
+      if (vs.channelId) voice?.leave();
+      applyState(state);
+      const first = channels.find((c) => c.type === "text");
+      if (first) await openChannel(first);
+    } catch (error) {
+      newError = error.code === "invite_invalid" ? "Инвайт не найден или устарел" : "Не получилось войти";
+    } finally {
+      busy = false;
+    }
+  }
+
+  const STATUS_LABEL = { online: "в сети", away: "отошёл", dnd: "не беспокоить", offline: "не в сети" };
+  const statusOf = (id) => statuses[id] || (online.has(id) ? "online" : "offline");
 
   function hotkeyAction(combo) {
     const keys = prefs.get().keys;
@@ -237,12 +324,8 @@
 
   onMount(async () => {
     const boot = await api("/api/bootstrap");
-    channels = boot.channels;
-    members = boot.members;
-    roles = boot.roles || [];
-    space = boot.space || null;
-    permissions = boot.permissions || [];
-    online = new Set(boot.online);
+    spaces = boot.spaces || [];
+    applyState(boot);
     const first = boot.channels.find((c) => c.type === "text");
     if (first) await openChannel(first);
     socket = connect(handleEvent, (s) => (status = s));
@@ -319,11 +402,22 @@
     </div>
 
     <div class="servers">
-      {#each [space].filter(Boolean) as s (s.id)}
-        <button class="coin" title={s.name} on:click={() => (showServer = true)}>
+      {#each spaces as s (s.id)}
+        <button
+          class="coin"
+          class:active={space?.id === s.id}
+          title={s.name}
+          on:click={() => switchSpace(s)}
+        >
           {s.name.slice(0, 1).toUpperCase()}
         </button>
       {/each}
+      <button
+        class="coin add"
+        title="Новый сервер"
+        aria-label="Новый сервер"
+        on:click={() => { newError = ""; showNewServer = true; }}
+      >+</button>
     </div>
 
     <div class="me">
@@ -332,7 +426,7 @@
         <span class="who">
           <b>{user.name}</b>
           <span class:online={status === "online"}>
-            {status === "online" ? "в сети" : "нет связи"}
+            {status === "online" ? STATUS_LABEL[user.status] || "в сети" : "нет связи"}
           </span>
         </span>
       </button>
@@ -421,7 +515,7 @@
                 <span>{member.roles.map((r) => r.name).join(" · ")}</span>
               {/if}
             </div>
-            <i class="member-dot"></i>
+            <i class="member-dot" class:away={statusOf(member.id) === "away"} class:dnd={statusOf(member.id) === "dnd"}></i>
           </div>
         {/each}
       {/if}
@@ -451,6 +545,42 @@
     on:close={() => (showSettings = false)}
     on:user={(e) => applyUser(e.detail)}
   />
+{/if}
+
+{#if showNewServer}
+  <div class="modal" role="dialog" aria-modal="true" on:click|self={() => (showNewServer = false)}>
+    <div class="new-card">
+      <div class="set-head">
+        <h2>Новый сервер</h2>
+        <button class="icon-btn" aria-label="Закрыть" on:click={() => (showNewServer = false)}>✕</button>
+      </div>
+      <div class="new-body">
+        <div class="set-field">
+          <label>создать свой</label>
+          <input
+            class="set-input"
+            bind:value={newName}
+            placeholder="Название сервера"
+            maxlength="40"
+            on:keydown={(e) => e.key === "Enter" && createSpace()}
+          />
+          <button class="set-copy" disabled={busy} on:click={createSpace}>Создать сервер</button>
+        </div>
+        <div class="new-sep"><span>или</span></div>
+        <div class="set-field">
+          <label>войти по коду</label>
+          <input
+            class="set-input"
+            bind:value={joinCode}
+            placeholder="Код приглашения"
+            on:keydown={(e) => e.key === "Enter" && joinSpace()}
+          />
+          <button class="ghost-btn" disabled={busy} on:click={joinSpace}>Присоединиться</button>
+        </div>
+        {#if newError}<div class="new-err">{newError}</div>{/if}
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if showServer && space}

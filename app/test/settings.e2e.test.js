@@ -1,75 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { startServer as bootServer, stopServer } from "./helpers.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "..", "..");
-const serverEntry = join(root, "server", "src", "index.js");
-const webDir = join(root, "app", "dist");
-
-let child;
+let harness;
 let base;
 let invite;
-let dataDir;
 
-function startServer() {
-  dataDir = mkdtempSync(join(tmpdir(), "nexus-set-"));
-  const port = 8700 + Math.floor(Math.random() * 400);
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [serverEntry], {
-    env: {
-      ...process.env,
-      NEXUS_PORT: String(port),
-      NEXUS_HOST: "127.0.0.1",
-      NEXUS_DATA_DIR: dataDir,
-      NEXUS_WEB_DIR: webDir,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("сервер не поднялся")), 20000);
-    child.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      const match = text.match(/инвайт-код: (\S+)/);
-      if (match) invite = match[1];
-      if (text.includes("слушаю") && invite) {
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      if (text.includes("Error")) {
-        clearTimeout(timer);
-        reject(new Error(text));
-      }
-    });
-  });
+async function startServer(opts) {
+  harness = await bootServer({ prefix: "nexus-set-", portBase: 8700, ...opts });
+  base = harness.base;
+  invite = harness.invite;
 }
 
 async function stopAll(browser) {
   await browser.close();
-  if (child && child.exitCode === null) {
-    const exited = new Promise((resolve) => child.once("exit", resolve));
-    child.kill();
-    await exited;
-  }
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  try {
-    rmSync(dataDir, { recursive: true, force: true });
-  } catch {
-    /* Windows may still hold the sqlite file */
-  }
+  await stopServer(harness);
 }
 
 async function register(page, { name, code = "secret123" }) {
-  await page.goto(`${base}/?server=${encodeURIComponent(base)}`);
+  await page.goto(`${base}/?server=${encodeURIComponent(harness.apiBase)}`);
   await page.getByRole("button", { name: "У меня инвайт" }).click();
   await page.getByLabel("Код приглашения").fill(invite);
   await page.getByLabel("Имя").fill(name);
@@ -164,7 +114,7 @@ test("настройки сервера: роль создаётся и назн
   const guest = await browser.newPage();
   await register(guest, { name: "Мира" });
 
-  await owner.locator(".coin").click();
+  await owner.locator(".coin:not(.add)").first().click();
   const dialog = owner.getByRole("dialog");
   await dialog.getByRole("button", { name: "Роли" }).click();
   await owner.locator(".role-new .set-input").fill("Дизайнер");
@@ -190,7 +140,7 @@ test("настройки сервера: приглашение создаётс
   const owner = await browser.newPage();
   await register(owner, { name: "Артём" });
 
-  await owner.locator(".coin").click();
+  await owner.locator(".coin:not(.add)").first().click();
   await owner.getByRole("dialog").getByRole("button", { name: "Приглашения" }).click();
   await owner.getByRole("button", { name: "Создать" }).click();
   await owner.locator(".set-invite .set-input").waitFor();
@@ -199,7 +149,7 @@ test("настройки сервера: приглашение создаётс
 
   const guest = await browser.newPage();
   await register(guest, { name: "Мира" });
-  await guest.locator(".coin").click();
+  await guest.locator(".coin:not(.add)").first().click();
   await guest.getByRole("dialog").getByRole("button", { name: "Приглашения" }).click();
   await guest.getByText("Приглашения доступны владельцу и админам").waitFor();
 });

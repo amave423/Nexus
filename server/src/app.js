@@ -35,6 +35,14 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
 
   app.register(websocket);
 
+  app.addHook("onRequest", async (req, reply) => {
+    reply.header("access-control-allow-origin", "*");
+    reply.header("access-control-allow-headers", "content-type, authorization");
+    reply.header("access-control-allow-methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+    reply.header("access-control-max-age", "86400");
+    if (req.method === "OPTIONS") return reply.code(204).send();
+  });
+
   const userByToken = (token) => {
     if (!token) return null;
     return (
@@ -152,7 +160,49 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       )
       .get(channelId, userId);
 
-  const spaceOfUser = (userId) => spacesOf(userId)[0] || null;
+  const spaceIdsOf = (userId) =>
+    db.prepare("SELECT space_id AS id FROM space_members WHERE user_id = ?").all(userId).map((r) => r.id);
+
+  const statusOf = (user) => {
+    const status = user.status || "online";
+    return status === "invisible" ? "offline" : status;
+  };
+
+  const presenceOf = (spaceId) => {
+    const rows = db
+      .prepare(
+        `SELECT u.id, u.status FROM space_members m JOIN users u ON u.id = m.user_id
+         WHERE m.space_id = ?`
+      )
+      .all(spaceId);
+    const online = [];
+    const statuses = {};
+    for (const row of rows) {
+      const status = hub.isOnline(row.id) ? statusOf(row) : "offline";
+      statuses[row.id] = status;
+      if (status !== "offline") online.push(row.id);
+    }
+    return { online, statuses };
+  };
+
+  const broadcastPresence = (userId) => {
+    for (const spaceId of hub.spacesOf(userId)) {
+      hub.broadcastSpace(spaceId, { t: "presence", ...presenceOf(spaceId) });
+    }
+  };
+
+  const stateOf = (spaceId, userId) => {
+    const space = spacesOf(userId).find((s) => s.id === spaceId);
+    if (!space) return null;
+    return {
+      space,
+      channels: channelsOf(spaceId),
+      members: membersOf(spaceId),
+      roles: rolesOf(spaceId),
+      permissions: permissionsOf(spaceId, userId),
+      ...presenceOf(spaceId),
+    };
+  };
 
   const inviteRow = (code) =>
     db
@@ -216,6 +266,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
       t: "member.update",
       member: memberOf(inv.spaceId, userId),
     });
+    hub.broadcastSpace(inv.spaceId, { t: "presence", ...presenceOf(inv.spaceId) });
     return { token, user: publicUser(user) };
   });
 
@@ -289,13 +340,13 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
     }
 
     const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
-    const space = spaceOfUser(req.user.id);
-    if (space) {
-      hub.broadcastSpace(space.id, {
+    for (const spaceId of hub.spacesOf(req.user.id)) {
+      hub.broadcastSpace(spaceId, {
         t: "member.update",
-        member: memberOf(space.id, req.user.id),
+        member: memberOf(spaceId, req.user.id),
       });
     }
+    if (patch.status !== undefined) broadcastPresence(req.user.id);
     return { user: publicUser(user) };
   });
 
@@ -303,20 +354,60 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
 
   app.get("/api/bootstrap", async (req, reply) => {
     if (!auth(req, reply)) return;
-    const spaces = spacesOf(req.user.id);
+    const spaces = spacesOf(req.user.id).map((s) => ({ ...s, channels: channelsOf(s.id) }));
     const space = spaces[0];
     if (!space)
       return { user: publicUser(req.user), spaces: [], channels: [], members: [], roles: [] };
-    return {
-      user: publicUser(req.user),
-      spaces,
-      space,
-      channels: channelsOf(space.id),
-      members: membersOf(space.id),
-      roles: rolesOf(space.id),
-      permissions: permissionsOf(space.id, req.user.id),
-      online: hub.onlineIds(),
-    };
+    return { user: publicUser(req.user), spaces, ...stateOf(space.id, req.user.id) };
+  });
+
+  app.get("/api/spaces/:id/state", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const state = stateOf(Number(req.params.id), req.user.id);
+    if (!state) return reply.code(403).send({ error: "forbidden" });
+    return state;
+  });
+
+  app.post("/api/spaces", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const name = String((req.body || {}).name || "").trim();
+    if (name.length < 2 || name.length > 40) return reply.code(400).send({ error: "name_length" });
+    const now = Date.now();
+    const info = db
+      .prepare("INSERT INTO spaces (name, description, owner_id, created_at) VALUES (?, '', ?, ?)")
+      .run(name, req.user.id, now);
+    const spaceId = Number(info.lastInsertRowid);
+    db.prepare(
+      "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)"
+    ).run(spaceId, req.user.id, now);
+    seedRoles(db, spaceId);
+    const ins = db.prepare(
+      "INSERT INTO channels (space_id, name, type, topic, position) VALUES (?, ?, ?, '', ?)"
+    );
+    ins.run(spaceId, "general", "text", 0);
+    ins.run(spaceId, "Кухня", "voice", 1);
+    hub.setSpaces(req.user.id, spaceIdsOf(req.user.id));
+    return stateOf(spaceId, req.user.id);
+  });
+
+  app.post("/api/invites/:code/join", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const inv = inviteRow(String(req.params.code));
+    if (!inviteAlive(inv)) return reply.code(403).send({ error: "invite_invalid" });
+    const now = Date.now();
+    if (!baseRole(inv.spaceId, req.user.id)) {
+      db.prepare(
+        "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)"
+      ).run(inv.spaceId, req.user.id, now);
+      db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(inv.code);
+      hub.broadcastSpace(inv.spaceId, {
+        t: "member.update",
+        member: memberOf(inv.spaceId, req.user.id),
+      });
+      hub.broadcastSpace(inv.spaceId, { t: "presence", ...presenceOf(inv.spaceId) });
+    }
+    hub.setSpaces(req.user.id, spaceIdsOf(req.user.id));
+    return stateOf(inv.spaceId, req.user.id);
   });
 
   app.get("/api/channels/:id/messages", async (req, reply) => {
@@ -578,15 +669,16 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
         socket.close(4001, "unauthorized");
         return;
       }
-      const space = spaceOfUser(user.id);
-      if (!space) {
+      const spaceIds = spaceIdsOf(user.id);
+      if (!spaceIds.length) {
         socket.close(4003, "no_space");
         return;
       }
 
-      hub.add(user.id, socket, space.id);
+      hub.add(user.id, socket);
+      hub.setSpaces(user.id, spaceIds);
       socket.send(JSON.stringify({ t: "ready", user: publicUser(user) }));
-      hub.broadcastSpace(space.id, { t: "presence", online: hub.onlineIds() });
+      broadcastPresence(user.id);
 
       socket.on("message", (raw) => {
         let msg;
@@ -595,23 +687,26 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
         } catch {
           return;
         }
-        handleSocket(msg, user, space, socket).catch((error) => {
+        handleSocket(msg, user, socket).catch((error) => {
           console.error("[nexus] socket handler failed", error);
         });
       });
 
       socket.on("close", async () => {
-        hub.remove(user.id, socket);
-        if (!hub.sockets.has(user.id)) {
+        const spaceSet = hub.spacesOf(user.id);
+        const gone = hub.remove(user.id, socket);
+        if (gone) {
           const channelId = await voice.leave(user.id);
           if (channelId) voice.roster(channelId);
         }
-        hub.broadcastSpace(space.id, { t: "presence", online: hub.onlineIds() });
+        for (const spaceId of spaceSet) {
+          hub.broadcastSpace(spaceId, { t: "presence", ...presenceOf(spaceId) });
+        }
       });
     });
   });
 
-  async function handleSocket(msg, user, space, socket) {
+  async function handleSocket(msg, user, socket) {
     const reply = (payload) => {
       if (!msg.req) return;
       socket.send(JSON.stringify({ t: "voice.reply", req: msg.req, ...payload }));
@@ -630,7 +725,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
         const channelId = Number(msg.channelId);
         if (!canSeeChannel(user.id, channelId)) return;
         hub.broadcastSpace(
-          space.id,
+          spaceOfChannel(channelId),
           { t: "typing", channelId, userId: user.id, name: user.name },
           user.id
         );
@@ -641,7 +736,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null }) {
         const channel = db
           .prepare("SELECT space_id AS spaceId, type FROM channels WHERE id = ?")
           .get(channelId);
-        if (!channel || channel.spaceId !== space.id || !canSeeChannel(user.id, channelId)) {
+        if (!channel || !canSeeChannel(user.id, channelId)) {
           reply({ error: "forbidden" });
           return;
         }

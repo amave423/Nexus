@@ -1,7 +1,5 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
-import fastifyStatic from "@fastify/static";
 import { openDb, seed } from "./db.js";
 import { buildApp } from "./app.js";
 
@@ -9,7 +7,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.NEXUS_DATA_DIR || join(here, "..", "data");
 const port = Number(process.env.NEXUS_PORT || 8091);
 const host = process.env.NEXUS_HOST || "127.0.0.1";
-const webDir = process.env.NEXUS_WEB_DIR || join(here, "..", "..", "app", "dist");
 
 const db = openDb(join(dataDir, "nexus.db"));
 
@@ -26,15 +23,6 @@ try {
   console.log("[nexus] голосовой сервер готов");
 } catch (error) {
   console.error("[nexus] голос не поднялся:", error.message);
-}
-
-if (existsSync(webDir)) {
-  app.register(fastifyStatic, { root: webDir, prefix: "/" });
-  app.setNotFoundHandler((req, reply) => {
-    if (req.raw.url.startsWith("/api") || req.raw.url.startsWith("/ws"))
-      return reply.code(404).send({ error: "not_found" });
-    return reply.sendFile("index.html");
-  });
 }
 
 const invite = app.ensureInvite();

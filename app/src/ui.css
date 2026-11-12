@@ -29,7 +29,7 @@ body.no-bg .aurora { display: none; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ---------- sidebar extras ---------- */
-.servers { display: flex; gap: 8px; padding: 8px 4px; }
+.servers { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 4px; }
 .coin {
   width: 38px; height: 38px; border-radius: 12px;
   display: grid; place-items: center;
@@ -39,6 +39,27 @@ body.no-bg .aurora { display: none; }
   transition: 0.16s;
 }
 .coin:hover { transform: translateY(-2px); }
+.coin.active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--acid); }
+.coin.add {
+  color: var(--muted); font-weight: 500; font-size: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+}
+.coin.add:hover { color: var(--acid); border-color: rgba(var(--acid-rgb), 0.5); background: rgba(var(--acid-rgb), 0.08); }
+
+.new-card {
+  width: min(420px, 100%);
+  border-radius: 22px; border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--bg-3), var(--bg-2));
+  box-shadow: 0 40px 100px -30px #000;
+  overflow: hidden;
+  animation: modalIn 0.28s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.new-body { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px; }
+.new-body .set-copy, .new-body .ghost-btn { width: 100%; }
+.new-sep { display: flex; align-items: center; gap: 12px; color: var(--dim); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; }
+.new-sep::before, .new-sep::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+.new-err { font-size: 12px; color: var(--rose); }
 .me-btn { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-align: left; }
 .me .who { display: flex; flex-direction: column; min-width: 0; }
 .unread {
@@ -93,6 +114,8 @@ body.no-bg .aurora { display: none; }
   color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em;
 }
 .member-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--acid); box-shadow: 0 0 8px var(--acid); }
+.member-dot.away { background: #ffc857; box-shadow: 0 0 8px #ffc857; }
+.member-dot.dnd { background: var(--rose); box-shadow: 0 0 8px var(--rose); }
 
 /* ---------- modal ---------- */
 .modal {

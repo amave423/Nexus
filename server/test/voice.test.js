@@ -134,9 +134,6 @@ test("голос: в канал чужого пространства не по�
       Date.now()
     ).lastInsertRowid
   );
-  db.prepare(
-    "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)"
-  ).run(otherSpace, a.body.user.id, Date.now());
   const foreignChannel = Number(
     db
       .prepare(
