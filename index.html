@@ -16,14 +16,65 @@
 
   <header class="topbar">
     <button class="icon-btn menu-btn" id="menuBtn" aria-label="Каналы"></button>
-    <div class="servers" id="servers"></div>
-    <div class="chan-head">
-      <div class="chan-title">
-        <span class="chan-glyph" id="chanGlyph"></span>
-        <h1 id="chanName">general</h1>
-      </div>
-      <p class="chan-topic" id="chanTopic"></p>
-    </div>
+      <a class="brand" href="#" aria-label="Nexus">
+      <svg viewBox="39.5 61 261 41" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="lwSilver" gradientUnits="userSpaceOnUse" x1="0" y1="63" x2="0" y2="100">
+            <stop offset="0" stop-color="#c4c3c8"/>
+            <stop offset="0.38" stop-color="#bab9be"/>
+            <stop offset="0.62" stop-color="#a3a2a7"/>
+            <stop offset="0.82" stop-color="#929196"/>
+            <stop offset="1" stop-color="#939297"/>
+          </linearGradient>
+          <linearGradient id="lwGreen" gradientUnits="userSpaceOnUse" x1="0" y1="63" x2="0" y2="100">
+            <stop offset="0" class="lg0" stop-color="#d4e844"/>
+            <stop offset="0.08" class="lg1" stop-color="#ddef4f"/>
+            <stop offset="0.24" class="lg2" stop-color="#bedc28"/>
+            <stop offset="0.35" class="lg3" stop-color="#a5c90c"/>
+            <stop offset="0.42" class="lg4" stop-color="#809d1a"/>
+            <stop offset="0.55" class="lg5" stop-color="#84a22f"/>
+            <stop offset="0.75" class="lg6" stop-color="#83a032"/>
+            <stop offset="1" class="lg7" stop-color="#5f7330"/>
+          </linearGradient>
+          <path id="lwN" d="M40.8 63.1H46.8L76.8 91.8V63.1H83.2V99.7H76.7L47 71.5V99.7H40.8Z"/>
+          <path id="lwE" d="M98.2 63.1H134.6V68.5H104.9V78.7H132.1V84H104.9V94H134.4V99.7H102.2A4 4 0 0 1 98.2 95.7Z"/>
+          <path id="lwXs" d="M145.4 63.1H155.2L192.9 99.7H183.1Z"/>
+          <path id="lwXg" d="M182.7 63.1H192.5L156.3 99.7H146.5Z"/>
+          <path id="lwU" d="M204.6 63.1H211V92.6Q211 94.6 213 94.6H236.7Q238.7 94.6 238.7 92.6V63.1H245.3V93.7A6 6 0 0 1 239.3 99.7H210.6A6 6 0 0 1 204.6 93.7Z"/>
+          <path id="lwS" d="M297.7 63.1V68.5H268.6Q266.6 68.5 266.6 70.5V76.7Q266.6 78.7 268.6 78.7H293.2A5.5 5.5 0 0 1 298.7 84.2V94.2A5.5 5.5 0 0 1 293.2 99.7H260.2V94.6H290.9Q292.9 94.6 292.9 92.6V86.1Q292.9 84.1 290.9 84.1H265.5A5.5 5.5 0 0 1 260 78.6V68.6A5.5 5.5 0 0 1 265.5 63.1Z"/>
+          <clipPath id="lwClipN"><use href="#lwN"/></clipPath>
+          <clipPath id="lwClipE"><use href="#lwE"/></clipPath>
+          <clipPath id="lwClipXs"><use href="#lwXs"/></clipPath>
+          <clipPath id="lwClipU"><use href="#lwU"/></clipPath>
+          <clipPath id="lwClipS"><use href="#lwS"/></clipPath>
+          <mask id="lwGap" maskUnits="userSpaceOnUse" x="0" y="0" width="337" height="151">
+            <rect width="337" height="151" fill="#fff"/>
+            <g fill="#000" stroke="#000" stroke-width="1.8">
+              <use href="#lwXg"/>
+              <use href="#lwXg" transform="translate(1.6 0)"/>
+            </g>
+          </mask>
+        </defs>
+        <g fill="url(#lwSilver)">
+          <use href="#lwN"/>
+          <use href="#lwE"/>
+          <use href="#lwU"/>
+          <use href="#lwS"/>
+        </g>
+        <g mask="url(#lwGap)">
+          <use href="#lwXs" fill="url(#lwSilver)"/>
+          <use href="#lwXs" fill="#000" opacity="0.08"/>
+          <use href="#lwXs" clip-path="url(#lwClipXs)" fill="none" stroke="#fff" stroke-width="1.6" stroke-opacity="0.12"/>
+        </g>
+        <g fill="none" stroke="#fff" stroke-width="1.6" stroke-opacity="0.12">
+          <use href="#lwN" clip-path="url(#lwClipN)"/>
+          <use href="#lwE" clip-path="url(#lwClipE)"/>
+          <use href="#lwU" clip-path="url(#lwClipU)"/>
+          <use href="#lwS" clip-path="url(#lwClipS)"/>
+        </g>
+        <use href="#lwXg" fill="url(#lwGreen)"/>
+      </svg>
+    </a>
     <div class="top-actions">
       <div class="stat" id="stat"><span class="dot-live"></span><span id="statText">12 ms</span></div>
       <button class="icon-btn" id="searchBtn" aria-label="Поиск"></button>
@@ -35,6 +86,7 @@
   <main class="stage" id="stage">
     <aside class="sidebar" id="sidebar">
       <div class="chan-rail" id="chanRail"></div>
+      <div class="servers" id="servers"></div>
       <div class="voice-seg" id="voiceSeg"></div>
     </aside>
 

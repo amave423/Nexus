@@ -73,7 +73,7 @@ input{font-family:inherit;color:inherit;background:none;border:0;outline:none}
 /* ---------- topbar ---------- */
 .topbar{
   position:relative;z-index:20;
-  display:grid;grid-template-columns:var(--side) minmax(0,1fr) auto;
+  display:grid;grid-template-columns:minmax(0,1fr) auto;
   align-items:center;
   height:78px;padding:0 22px 0 0;
   border-bottom:1px solid var(--line);
@@ -82,9 +82,13 @@ input{font-family:inherit;color:inherit;background:none;border:0;outline:none}
 }
 .topbar .menu-btn{display:none}
 
-.servers{display:flex;align-items:center;padding-left:20px}
+.servers{
+  display:flex;align-items:center;gap:0;
+  padding:12px 2px 2px;margin-top:2px;
+  border-top:1px solid var(--line-soft);
+}
 .coin{
-  width:44px;height:44px;border-radius:50%;
+  width:40px;height:40px;border-radius:50%;
   display:grid;place-items:center;
   font-family:var(--mono);font-weight:700;font-size:15px;
   color:var(--txt-2);
@@ -105,19 +109,6 @@ input{font-family:inherit;color:inherit;background:none;border:0;outline:none}
 .coin.add{color:var(--dim);border-style:dashed}
 .coin.add:hover{color:var(--acid);border-color:rgba(var(--acid-rgb),.5)}
 
-.chan-head{min-width:0;padding-left:var(--pad)}
-.chan-title{display:flex;align-items:center;gap:9px}
-.chan-glyph{color:var(--acid);display:flex}
-.chan-glyph svg{width:19px;height:19px}
-.chan-title h1{
-  font-size:19px;font-weight:600;letter-spacing:-.02em;line-height:1.1;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
-.chan-topic{
-  font-family:var(--mono);font-size:11px;letter-spacing:.02em;
-  color:var(--dim);margin-top:3px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
 
 .top-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .stat{
@@ -154,6 +145,25 @@ input{font-family:inherit;color:inherit;background:none;border:0;outline:none}
   padding:14px 12px 14px;
   gap:10px;
 }
+.brand{
+  display:flex;align-items:center;
+  padding-left:14px;
+  text-decoration:none;
+  transition:opacity .2s, filter .2s;
+}
+.brand:hover{opacity:.82;filter:brightness(1.12)}
+.brand svg{display:block;width:168px;height:auto;max-width:100%}
+
+/* the green stroke follows the accent colour picked in settings */
+.brand .lg0{stop-color:color-mix(in srgb, var(--acid) 68%, #fff)}
+.brand .lg1{stop-color:color-mix(in srgb, var(--acid) 76%, #fff)}
+.brand .lg2{stop-color:var(--acid)}
+.brand .lg3{stop-color:color-mix(in srgb, var(--acid) 90%, #000)}
+.brand .lg4{stop-color:color-mix(in srgb, var(--acid) 58%, #000)}
+.brand .lg5{stop-color:color-mix(in srgb, var(--acid) 62%, #000)}
+.brand .lg6{stop-color:color-mix(in srgb, var(--acid) 61%, #000)}
+.brand .lg7{stop-color:color-mix(in srgb, var(--acid) 40%, #000)}
+
 .chan-rail{
   flex:1;min-height:0;
   display:flex;flex-direction:column;gap:2px;
@@ -1055,15 +1065,15 @@ body.no-bg .aurora,body.no-bg .spotlight{display:none}
 @media (max-width:860px){
   :root{--pad:14px;--side:272px}
   .topbar{
-    grid-template-columns:auto auto minmax(0,1fr) auto;
+    grid-template-columns:auto minmax(0,1fr) auto;
     height:66px;padding:0 12px 0 0;gap:8px;
   }
   .topbar .menu-btn{display:grid;margin-left:10px;width:34px;height:34px}
-  .servers{padding-left:0}
+  .brand{padding-left:10px}
+  .brand svg{width:126px}
   .coin{width:34px;height:34px;font-size:11px}
   .coin + .coin{margin-left:-10px}
   .servers:hover .coin + .coin{margin-left:3px}
-  .chan-head{padding-left:4px}
   .chan-title h1{font-size:15px}
   .chan-topic{display:none}
   .icon-btn{width:34px;height:34px}

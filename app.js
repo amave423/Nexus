@@ -570,21 +570,21 @@ function openChannel(id) {
   currentId = id;
   renderChannels();
   $("chanRail").querySelectorAll(".chan").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
-  $("chanName").textContent = ch.name;
-  $("chanGlyph").innerHTML = ch.type === "voice" ? ICONS.volume : ICONS.hash;
+  if ($("chanName")) $("chanName").textContent = ch.name;
+  if ($("chanGlyph")) $("chanGlyph").innerHTML = ch.type === "voice" ? ICONS.volume : ICONS.hash;
   document.body.classList.remove("nav-open");
 
   const wrap = $("streamWrap");
   document.body.classList.toggle("in-voice", ch.type === "voice");
   if (ch.type === "voice") {
     const n = roomPeople(ch).length;
-    $("chanTopic").textContent = `голосовой канал · ${n} ${plural(n, "участник", "участника", "участников")}`;
+    if ($("chanTopic")) $("chanTopic").textContent = `голосовой канал · ${n} ${plural(n, "участник", "участника", "участников")}`;
     wrap.classList.add("voice-mode");
     $("room").hidden = false;
     roomMode = VOICE.screen ? "stream" : VOICE.cam ? "cams" : "ring";
     renderRoom(ch);
   } else {
-    $("chanTopic").textContent = ch.topic || "";
+    if ($("chanTopic")) $("chanTopic").textContent = ch.topic || "";
     wrap.classList.remove("voice-mode");
     $("room").hidden = true;
     clearInterval(roomTimer);

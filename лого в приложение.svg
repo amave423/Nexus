@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="337" height="151" viewBox="0 0 337 151">
+  <defs>
+    <linearGradient id="silver" gradientUnits="userSpaceOnUse" x1="0" y1="63" x2="0" y2="100">
+      <stop offset="0" stop-color="#c4c3c8"/>
+      <stop offset="0.38" stop-color="#bab9be"/>
+      <stop offset="0.62" stop-color="#a3a2a7"/>
+      <stop offset="0.82" stop-color="#929196"/>
+      <stop offset="1" stop-color="#939297"/>
+    </linearGradient>
+    <linearGradient id="green" gradientUnits="userSpaceOnUse" x1="0" y1="63" x2="0" y2="100">
+      <stop offset="0" stop-color="#d4e844"/>
+      <stop offset="0.08" stop-color="#ddef4f"/>
+      <stop offset="0.24" stop-color="#bedc28"/>
+      <stop offset="0.35" stop-color="#a5c90c"/>
+      <stop offset="0.42" stop-color="#809d1a"/>
+      <stop offset="0.55" stop-color="#84a22f"/>
+      <stop offset="0.75" stop-color="#83a032"/>
+      <stop offset="1" stop-color="#5f7330"/>
+    </linearGradient>
+
+    <path id="n" d="M40.8 63.1H46.8L76.8 91.8V63.1H83.2V99.7H76.7L47 71.5V99.7H40.8Z"/>
+    <path id="e" d="M98.2 63.1H134.6V68.5H104.9V78.7H132.1V84H104.9V94H134.4V99.7H102.2A4 4 0 0 1 98.2 95.7Z"/>
+    <path id="xs" d="M145.4 63.1H155.2L192.9 99.7H183.1Z"/>
+    <path id="xg" d="M182.7 63.1H192.5L156.3 99.7H146.5Z"/>
+    <path id="u" d="M204.6 63.1H211V92.6Q211 94.6 213 94.6H236.7Q238.7 94.6 238.7 92.6V63.1H245.3V93.7A6 6 0 0 1 239.3 99.7H210.6A6 6 0 0 1 204.6 93.7Z"/>
+    <path id="s" d="M297.7 63.1V68.5H268.6Q266.6 68.5 266.6 70.5V76.7Q266.6 78.7 268.6 78.7H293.2A5.5 5.5 0 0 1 298.7 84.2V94.2A5.5 5.5 0 0 1 293.2 99.7H260.2V94.6H290.9Q292.9 94.6 292.9 92.6V86.1Q292.9 84.1 290.9 84.1H265.5A5.5 5.5 0 0 1 260 78.6V68.6A5.5 5.5 0 0 1 265.5 63.1Z"/>
+
+    <clipPath id="clip-n"><use xlink:href="#n"/></clipPath>
+    <clipPath id="clip-e"><use xlink:href="#e"/></clipPath>
+    <clipPath id="clip-xs"><use xlink:href="#xs"/></clipPath>
+    <clipPath id="clip-u"><use xlink:href="#u"/></clipPath>
+    <clipPath id="clip-s"><use xlink:href="#s"/></clipPath>
+
+    <!-- gap where the green stroke crosses over the silver one -->
+    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="337" height="151">
+      <rect width="337" height="151" fill="#fff"/>
+      <g fill="#000" stroke="#000" stroke-width="1.8">
+        <use xlink:href="#xg"/>
+        <use xlink:href="#xg" transform="translate(1.6 0)"/>
+      </g>
+    </mask>
+  </defs>
+
+  <g fill="url(#silver)">
+    <use xlink:href="#n"/>
+    <use xlink:href="#e"/>
+    <use xlink:href="#u"/>
+    <use xlink:href="#s"/>
+  </g>
+  <g mask="url(#gap)">
+    <use xlink:href="#xs" fill="url(#silver)"/>
+    <use xlink:href="#xs" fill="#000" opacity="0.08"/>
+    <use xlink:href="#xs" clip-path="url(#clip-xs)" fill="none" stroke="#fff" stroke-width="1.6" stroke-opacity="0.12"/>
+  </g>
+
+  <!-- thin bright bevel along the inner edge of each silver glyph -->
+  <g fill="none" stroke="#fff" stroke-width="1.6" stroke-opacity="0.12">
+    <use xlink:href="#n" clip-path="url(#clip-n)"/>
+    <use xlink:href="#e" clip-path="url(#clip-e)"/>
+    <use xlink:href="#u" clip-path="url(#clip-u)"/>
+    <use xlink:href="#s" clip-path="url(#clip-s)"/>
+  </g>
+
+  <use xlink:href="#xg" fill="url(#green)"/>
+</svg>
