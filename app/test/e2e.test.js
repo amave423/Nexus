@@ -110,6 +110,27 @@ test("клиент: пинг до сервера показывается в ш�
   assert.ok(value > 0 && value < 5000, `пинг измерен: ${text}`);
 });
 
+test("вход: карточка стоит по центру экрана", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const page = await browser.newPage();
+  await page.goto(`${base}/?server=${encodeURIComponent(harness.apiBase)}`);
+  const card = page.locator(".login-card");
+  await card.waitFor();
+
+  const box = await card.boundingBox();
+  const view = page.viewportSize();
+  const cardCenter = box.y + box.height / 2;
+  const off = Math.abs(cardCenter - view.height / 2);
+  assert.ok(
+    off < 60,
+    `карточка по центру: центр ${Math.round(cardCenter)} против ${view.height / 2} (сдвиг ${Math.round(off)})`
+  );
+  assert.ok(box.y > 40, `сверху есть отступ: ${Math.round(box.y)}`);
+});
+
 test("клиент: неверный инвайт не пускает в чат", async (t) => {
   await startServer();
   const browser = await chromium.launch();

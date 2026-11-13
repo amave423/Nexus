@@ -39,7 +39,7 @@ export const DEFAULTS = {
   noiseSup: true,
   noiseMode: "rnnoise",
   echoCancel: true,
-  autoGain: true,
+  autoGain: false,
   voiceMode: false,
   quality: "96 kbps",
   keys: {

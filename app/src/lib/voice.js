@@ -43,6 +43,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     cam: false,
     stream: false,
     micLevel: 0,
+    micError: null,
     noise: null,
   };
 
@@ -59,6 +60,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       cam: state.cam,
       stream: state.stream,
       micLevel: state.micLevel,
+      micError: state.micError,
       noise: state.noise,
       rosters: new Map([...rosters].map(([id, members]) => [id, members.map((m) => ({ ...m }))])),
       remote: new Map([...remote].map(([id, value]) => [id, { ...value }])),
@@ -275,7 +277,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         deviceId: pref.micDevId ? { exact: pref.micDevId } : undefined,
         echoCancellation: pref.echoCancel !== false,
         noiseSuppression: pref.noiseMode === "browser",
-        autoGainControl: pref.autoGain !== false,
+        autoGainControl: !!pref.autoGain,
         channelCount: 1,
       },
       video: false,
@@ -307,12 +309,27 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     local.mic = micStream;
     startMeter(track);
     if (state.muted) {
-      track.enabled = false;
+      silenceTracks(true);
       await request("voice.pauseProducer", { producerId: micProducer.id, paused: true }).catch(
         () => {}
       );
     }
     publish();
+  }
+
+  async function requestMic() {
+    if (micProducer) return true;
+    try {
+      await startMic();
+      state.micError = null;
+      await setMuted(false);
+      return true;
+    } catch {
+      state.micError = "no_mic";
+      state.muted = true;
+      publish();
+      return false;
+    }
   }
 
   async function stopMic() {
@@ -348,8 +365,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       try {
         await startMic();
       } catch {
+        state.micError = "no_mic";
         state.muted = true;
-        state.error = "no_mic";
       }
       state.joined = true;
       state.joining = false;
@@ -398,6 +415,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     device = null;
     state.joined = false;
     state.channelId = null;
+    state.micError = null;
     state.cam = false;
     state.stream = false;
     publish();
@@ -411,9 +429,18 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     leaving = false;
   }
 
+  function silenceTracks(muted) {
+    const tracks = [
+      ...(micStream?.getAudioTracks() || []),
+      ...(micChain?.track ? [micChain.track] : []),
+      ...(micProducer?.track ? [micProducer.track] : []),
+    ];
+    for (const track of tracks) track.enabled = !muted;
+  }
+
   async function setMuted(muted) {
     state.muted = muted;
-    for (const track of micStream?.getAudioTracks() || []) track.enabled = !muted;
+    silenceTracks(muted);
     if (micProducer) {
       await request("voice.pauseProducer", { producerId: micProducer.id, paused: muted }).catch(
         () => {}
@@ -574,6 +601,15 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     }
   }
 
+  function micInfo() {
+    return {
+      raw: [...(micStream?.getAudioTracks() || [])].map((track) => track.enabled),
+      processed: micChain?.track ? micChain.track.enabled : null,
+      producer: micProducer?.track ? micProducer.track.enabled : null,
+      noise: state.noise,
+    };
+  }
+
   async function stats() {
     const out = [];
     for (const entry of consumers.values()) {
@@ -603,6 +639,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     state.joined = false;
     state.joining = false;
     state.error = null;
+    state.micError = null;
     state.muted = false;
     state.deafened = false;
     state.cam = false;
@@ -621,6 +658,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     toggleCamera,
     toggleScreen,
     setMuted,
+    requestMic,
+    micInfo,
     stats,
     get state() {
       return state;

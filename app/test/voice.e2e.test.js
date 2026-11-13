@@ -272,3 +272,74 @@ test("голос: в текстовый канал не входит, комна
   assert.equal(await page.locator(".room").count(), 0, "в текстовом канале комнаты нет");
   assert.equal(await page.getByPlaceholder("Написать в #general").count(), 1, "чат на месте");
 });
+
+test("голос: без микрофона входишь в канал и слышишь остальных", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await pageB.addInitScript(() => {
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      if (constraints && constraints.audio) {
+        throw new DOMException("Permission denied", "NotAllowedError");
+      }
+      return real(constraints);
+    };
+  });
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+
+  await joinVoice(pageB);
+  assert.equal(await pageB.locator(".room").count(), 1, "без микрофона в комнату всё равно пускает");
+  await pageB.locator(".mic-warn").waitFor({ timeout: 15000 });
+
+  await joinVoice(pageA);
+  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+
+  const got = await waitForAudio(pageB, "Миру");
+  assert.ok(got.bytes > 0, "без микрофона Мира слышит Артёма");
+
+  const mic = await pageB.evaluate(() => window.__nexusVoice.micInfo());
+  assert.equal(mic.producer, null, "своего потока нет — микрофон недоступен");
+
+  await contextA.close();
+  await contextB.close();
+});
+
+test("голос: мьют с включённым шумодавом действительно глушит передачу", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const page = await browser.newPage();
+  await register(page, "Артём");
+  await joinVoice(page);
+
+  const deadline = Date.now() + 20000;
+  let mic = null;
+  while (Date.now() < deadline) {
+    mic = await page.evaluate(() => window.__nexusVoice.micInfo());
+    if (mic && mic.producer !== null) break;
+    await page.waitForTimeout(300);
+  }
+  assert.equal(mic.noise, "rnnoise", "шумодав включён");
+  assert.equal(mic.producer, true, "до мьюта дорожка передаётся");
+
+  await page.getByTitle("Микрофон").click();
+  await page.waitForTimeout(400);
+  const muted = await page.evaluate(() => window.__nexusVoice.micInfo());
+  assert.equal(muted.producer, false, "дорожка, которая уходит в SFU, заглушена");
+  assert.deepEqual(muted.raw, [false], "сырой микрофон тоже заглушен");
+
+  await page.getByTitle("Микрофон").click();
+  await page.waitForTimeout(400);
+  const back = await page.evaluate(() => window.__nexusVoice.micInfo());
+  assert.equal(back.producer, true, "после мьюта снова передаёт");
+});

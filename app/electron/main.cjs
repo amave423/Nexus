@@ -82,7 +82,7 @@ ipcMain.handle("update:check", async () => {
 
 ipcMain.on("update:install", () => {
   quitting = true;
-  autoUpdater.quitAndInstall();
+  autoUpdater.quitAndInstall(true, true);
 });
 
 const iconPath = () =>
@@ -351,7 +351,7 @@ ipcMain.on("notify:open", (_event, channelId) => {
   closeNotify();
   if (action === "update") {
     quitting = true;
-    autoUpdater.quitAndInstall();
+    autoUpdater.quitAndInstall(true, true);
     return;
   }
   showWindow();

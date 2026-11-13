@@ -106,11 +106,18 @@
     </div>
   </div>
 
+  {#if vs.micError && !vs.error}
+    <div class="mic-warn">
+      <span>Микрофон недоступен — тебя не слышно</span>
+      <button class="mini" on:click={() => voice.requestMic()}>Включить</button>
+    </div>
+  {/if}
+
   <div class="room-stage" bind:this={stageEl}>
     {#if vs.error}
       <div class="room-error">
         <b>Не удалось подключиться</b>
-        <span>{vs.error === "no_mic" ? "нет доступа к микрофону" : vs.error}</span>
+        <span>{vs.error}</span>
       </div>
     {:else if mode === "stream"}
       <div class="stream-view">

@@ -23,6 +23,12 @@ body {
 }
 
 /* ---------- login ---------- */
+#app > .login {
+  grid-row: 1 / -1;
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
 .login {
   position: relative;
   z-index: 1;
@@ -711,6 +717,26 @@ body {
 }
 
 /* ---------- room extras ---------- */
+.mic-warn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 2px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 179, 84, 0.32);
+  background: rgba(255, 179, 84, 0.1);
+  font-size: 12.5px;
+  color: #ffce8f;
+}
+
+.mic-warn .mini {
+  margin-left: auto;
+  color: #ffce8f;
+  border-color: rgba(255, 179, 84, 0.4);
+}
+
 .room-error {
   display: flex;
   flex-direction: column;
@@ -824,4 +850,15 @@ body {
   .stream-wrap .stream {
     mask-image: linear-gradient(180deg, transparent 0, rgba(0, 0, 0, 0.12) 16px, #000 52px);
   }
+}
+
+/* ---------- live dot outside the channel list ---------- */
+.room-title .live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acid);
+  box-shadow: 0 0 8px var(--acid);
+  flex: 0 0 auto;
+  animation: pulse 2s infinite;
 }

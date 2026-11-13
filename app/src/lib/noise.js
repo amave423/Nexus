@@ -81,8 +81,17 @@ export async function buildMicTrack(stream, { level = 100, mode = "rnnoise" } = 
 
   const gain = ctx.createGain();
   gain.gain.value = gainValue;
+
+  // жёсткий лимитер: без него громкий голос уходил в перегруз и хрипел
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.1;
+
   const dest = ctx.createMediaStreamDestination();
-  node.connect(gain).connect(dest);
+  node.connect(gain).connect(limiter).connect(dest);
 
   return {
     track: dest.stream.getAudioTracks()[0],
@@ -97,6 +106,7 @@ export async function buildMicTrack(stream, { level = 100, mode = "rnnoise" } = 
       try {
         source.disconnect();
         gain.disconnect();
+        limiter.disconnect();
       } catch {
         /* уже отключено */
       }

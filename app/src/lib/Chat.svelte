@@ -76,6 +76,7 @@
     cam: false,
     stream: false,
     micLevel: 0,
+    micError: null,
     rosters: new Map(),
     remote: new Map(),
     local: {},
@@ -702,7 +703,7 @@
           class:active={current?.id === channel.id}
           on:click={() => openChannel(channel)}
         >
-          <span class="hash">#</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>
           <span class="nm">{channel.name}</span>
           {#if unread.has(channel.id)}<i class="unread"></i>{/if}
         </button>
@@ -716,9 +717,10 @@
           class:live={vs.channelId === channel.id}
           on:click={() => openVoice(channel)}
         >
-          <span class="hash">◍</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
           <span class="nm">{channel.name}</span>
           {#if (vs.rosters.get(channel.id) || []).length}
+            <i class="live-dot"></i>
             <i class="chan-count">{(vs.rosters.get(channel.id) || []).length}</i>
           {/if}
         </button>
