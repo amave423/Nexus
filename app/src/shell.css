@@ -1,0 +1,100 @@
+/* small fixes on top of the design sheet */
+.scrim.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chan .hash {
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 13px;
+  flex: 0 0 auto;
+  width: 15px;
+  text-align: center;
+}
+
+.chan.active .hash {
+  color: var(--acid);
+}
+
+.chan.live .hash {
+  color: var(--acid);
+}
+
+.mem {
+  position: relative;
+}
+
+.mem-dot {
+  position: absolute;
+  left: 26px;
+  bottom: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acid);
+  box-shadow: 0 0 8px rgba(var(--acid-rgb), 0.7);
+  border: 2px solid var(--bg);
+}
+
+.mem-dot.away {
+  background: var(--amber);
+  box-shadow: none;
+}
+
+.mem-dot.dnd {
+  background: var(--rose);
+  box-shadow: none;
+}
+
+.stat .dot-live.off {
+  background: var(--dim);
+  box-shadow: none;
+}
+
+.stream-wrap .stream {
+  flex: 1;
+}
+
+.topbar .brand {
+  justify-self: start;
+}
+
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  max-height: 120px;
+  padding: 0 4px;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--txt);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  resize: none;
+}
+
+.composer textarea::placeholder {
+  color: var(--dim);
+}
+
+.composer textarea:disabled {
+  opacity: 0.6;
+}
+
+.msg-actions {
+  opacity: 0;
+}
+
+.msg:hover .msg-actions {
+  opacity: 1;
+}
+
+@media (max-width: 860px) {
+  .stage .members {
+    display: flex;
+    flex-direction: column;
+  }
+}

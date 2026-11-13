@@ -23,9 +23,9 @@ async function register(page, { name, code = "secret123" }) {
   await page.getByRole("button", { name: "У меня инвайт" }).click();
   await page.getByLabel("Код приглашения").fill(invite);
   await page.getByLabel("Имя").fill(name);
-  await page.getByLabel("Код доступа").fill(code);
+  await page.getByLabel("Пароль").fill(code);
   await page.getByRole("button", { name: "Создать аккаунт" }).click();
-  await page.getByRole("heading", { name: "#general" }).waitFor();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
 }
 
 const accent = (page) =>
@@ -53,7 +53,7 @@ test("настройки: акцент и тема применяются и п�
   );
 
   await page.reload();
-  await page.getByRole("heading", { name: "#general" }).waitFor();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
   assert.equal(await accent(page), "#6fe3ff", "акцент сохранился");
   assert.equal(
     await page.evaluate(() => document.documentElement.dataset.theme),
@@ -78,7 +78,7 @@ test("настройки: имя меняется и видно в чате", as
 
   await page.getByPlaceholder("Написать в #general").fill("новое имя");
   await page.getByPlaceholder("Написать в #general").press("Enter");
-  await page.locator(".msg .mhead b", { hasText: "Артём К" }).waitFor();
+  await page.locator(".msg .msg-head .name", { hasText: "Артём К" }).waitFor();
 });
 
 test("настройки: аватар загружается и появляется в панели", async (t) => {
@@ -99,8 +99,8 @@ test("настройки: аватар загружается и появляе�
     mimeType: "image/png",
     buffer: png,
   });
-  await page.locator(".me .avatar img").waitFor({ timeout: 10000 });
-  assert.equal(await page.locator(".me .avatar img").count(), 1, "аватар в панели");
+  await page.locator(".profile-btn .avatar img").waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".profile-btn .avatar img").count(), 1, "аватар в панели");
 });
 
 test("настройки сервера: роль создаётся и назначается участнику", async (t) => {
@@ -129,7 +129,7 @@ test("настройки сервера: роль создаётся и назн
   await owner.locator(".role-chips i", { hasText: "Дизайнер" }).waitFor();
 
   await guest.locator(".icon-btn[aria-label='Участники']").click();
-  await guest.locator(".member-who span", { hasText: "Дизайнер" }).waitFor({ timeout: 10000 });
+  await guest.locator(".mem-act", { hasText: "Дизайнер" }).waitFor({ timeout: 10000 });
 });
 
 test("настройки сервера: приглашение создаётся, участник его не видит", async (t) => {

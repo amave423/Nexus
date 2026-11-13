@@ -356,6 +356,7 @@
               {saving ? "Сохраняю…" : "Сохранить"}
             </button>
             {#if saved}<span class="set-saved">{saved}</span>{/if}
+            <button class="danger-btn" style="margin-left:auto" on:click={() => dispatch("logout")}>Выйти из аккаунта</button>
           </div>
         {/if}
 

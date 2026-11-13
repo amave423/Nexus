@@ -6,8 +6,10 @@
 
   let user = null;
   let ready = false;
+  let spot = null;
 
   onMount(async () => {
+    window.addEventListener("mousemove", follow);
     if (getToken()) {
       try {
         const data = await api("/api/me");
@@ -19,12 +21,19 @@
     ready = true;
   });
 
+  function follow(event) {
+    if (!spot) return;
+    spot.style.transform = `translate3d(${event.clientX}px, ${event.clientY}px, 0)`;
+  }
+
   function logout() {
     user = null;
   }
 </script>
 
 <div class="aurora"></div>
+<div class="spotlight" bind:this={spot}></div>
+<div class="grain"></div>
 
 {#if !ready}
   <div class="login"><div class="empty">Загрузка…</div></div>

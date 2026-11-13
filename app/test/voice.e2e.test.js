@@ -35,7 +35,7 @@ async function register(page, name) {
   await page.getByRole("button", { name: "У меня инвайт" }).click();
   await page.getByLabel("Код приглашения").fill(invite);
   await page.getByLabel("Имя").fill(name);
-  await page.getByLabel("Код доступа").fill("secret123");
+  await page.getByLabel("Пароль").fill("secret123");
   await page.getByRole("button", { name: "Создать аккаунт" }).click();
   await page.locator(".chan").first().waitFor();
 }
@@ -247,14 +247,14 @@ test("голос: звук не пропадает при переходе в т
   const after = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
   assert.ok(after > before, `пакеты продолжают идти: было ${before}, стало ${after}`);
 
-  await pageA.locator(".voice-mini").waitFor({ timeout: 5000 });
-  await pageA.locator(".voice-mini").getByTitle("Микрофон").click();
+  await pageA.locator(".voice-seg").waitFor({ timeout: 5000 });
+  await pageA.locator(".voice-seg").getByTitle("Микрофон").click();
   await pageB.locator(".seat-mute").first().waitFor({ timeout: 10000 });
   assert.equal(await pageB.locator(".seat-mute").count(), 1, "мьют из текстового канала виден в комнате");
 
-  await pageA.locator(".voice-mini").getByTitle("Выйти из канала").click();
-  await pageA.locator(".voice-mini").waitFor({ state: "detached", timeout: 10000 });
-  assert.equal(await pageA.locator(".voice-mini").count(), 0, "вышел из голоса из текстового канала");
+  await pageA.locator(".voice-seg").getByTitle("Выйти из канала").click();
+  await pageA.locator(".voice-seg").waitFor({ state: "detached", timeout: 10000 });
+  assert.equal(await pageA.locator(".voice-seg").count(), 0, "вышел из голоса из текстового канала");
 
   await contextA.close();
   await contextB.close();

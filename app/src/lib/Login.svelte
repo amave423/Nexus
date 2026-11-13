@@ -15,8 +15,8 @@
     invite_used: "Инвайт уже израсходован",
     name_taken: "Это имя уже занято",
     name_length: "Имя: от 2 до 24 символов",
-    code_short: "Код доступа: минимум 6 символов",
-    bad_credentials: "Неверное имя или код доступа",
+    code_short: "Пароль: минимум 6 символов",
+    bad_credentials: "Неверное имя или пароль",
   };
 
   async function submit() {
@@ -59,7 +59,7 @@
     </div>
 
     <div class="field">
-      <label for="code">Код доступа</label>
+      <label for="code">Пароль</label>
       <input
         id="code"
         type="password"

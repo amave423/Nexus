@@ -1,0 +1,252 @@
+/* message extras on top of the design's .msg structure */
+.msg-head .stamp {
+  display: none;
+}
+
+.pin-tag {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--acid);
+  border: 1px solid rgba(var(--acid-rgb), 0.3);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg-text.gone {
+  color: var(--dim);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.msg.deleted .msg-head .name {
+  color: var(--dim) !important;
+}
+
+.edited {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--dim);
+  margin-left: 6px;
+}
+
+.mention {
+  color: var(--acid);
+  background: rgba(var(--acid-rgb), 0.12);
+  border-radius: 5px;
+  padding: 0 3px;
+}
+
+.reply {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  max-width: 100%;
+  color: var(--dim);
+}
+
+.reply:hover .reply-text {
+  color: var(--txt-2);
+}
+
+.reply-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-edit textarea {
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  border: 1px solid rgba(var(--acid-rgb), 0.4);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--txt);
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+  outline: none;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.mini {
+  background: rgba(var(--acid-rgb), 0.14);
+  color: var(--acid);
+  border-color: rgba(var(--acid-rgb), 0.3);
+}
+
+.mini.ghost {
+  background: none;
+  color: var(--muted);
+  border-color: var(--line-soft);
+}
+
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.attach.shot {
+  display: block;
+  padding: 0;
+  max-width: 380px;
+  text-align: left;
+  color: inherit;
+  transition: border-color 0.16s;
+}
+
+.attach.shot:hover {
+  border-color: rgba(var(--acid-rgb), 0.4);
+}
+
+.attach.shot img {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+}
+
+.attach-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 11px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  border-top: 1px solid var(--line-soft);
+}
+
+.attach-meta b {
+  color: var(--txt-2);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attach-video {
+  max-width: 380px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: #000;
+}
+
+.attach-audio {
+  height: 38px;
+  max-width: 340px;
+}
+
+.attach.file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  color: var(--txt-2);
+  text-decoration: none;
+  max-width: 320px;
+}
+
+.attach.file:hover {
+  border-color: rgba(var(--acid-rgb), 0.4);
+}
+
+.file-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(var(--acid-rgb), 0.12);
+  color: var(--acid);
+  flex: 0 0 auto;
+}
+
+.file-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.file-who b {
+  font-size: 12.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-who span {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.reaction.add {
+  color: var(--dim);
+}
+
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 8px;
+  padding: 6px;
+  width: max-content;
+  max-width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+
+.picker button {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 16px;
+  background: none;
+}
+
+.picker button:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.msg-actions button.danger:hover {
+  color: var(--rose);
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.86);
+  backdrop-filter: blur(6px);
+  border: 0;
+  animation: fadeIn 0.2s ease both;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 12px;
+}

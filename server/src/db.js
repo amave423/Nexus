@@ -150,6 +150,18 @@ export const DEFAULT_ROLES = [
   { name: "Участник", color: "#6fe3ff", permissions: ["send_messages"] },
 ];
 
+export function repairOwners(db) {
+  const orphans = db.prepare("SELECT id FROM spaces WHERE owner_id IS NULL").all();
+  for (const space of orphans) {
+    const first = db
+      .prepare("SELECT user_id AS id FROM space_members WHERE space_id = ? ORDER BY joined_at, user_id LIMIT 1")
+      .get(space.id);
+    if (!first) continue;
+    db.prepare("UPDATE spaces SET owner_id = ? WHERE id = ?").run(first.id, space.id);
+    db.prepare("UPDATE space_members SET role = 'owner' WHERE space_id = ? AND user_id = ?").run(space.id, first.id);
+  }
+}
+
 export function seedRoles(db, spaceId) {
   const now = Date.now();
   const ins = db.prepare(

@@ -26,9 +26,9 @@ async function register(page, { name, code = "secret123" }) {
   await page.getByRole("button", { name: "У меня инвайт" }).click();
   await page.getByLabel("Код приглашения").fill(invite);
   await page.getByLabel("Имя").fill(name);
-  await page.getByLabel("Код доступа").fill(code);
+  await page.getByLabel("Пароль").fill(code);
   await page.getByRole("button", { name: "Создать аккаунт" }).click();
-  await page.getByRole("heading", { name: "#general" }).waitFor();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
 }
 
 const composer = (page) => page.getByPlaceholder("Написать в #general");
@@ -66,8 +66,8 @@ test("чат: ответ, реакция, правка и удаление ви�
   await reply.hover();
   await reply.getByTitle("Реакция").click();
   await reply.locator(".picker button", { hasText: "🔥" }).click();
-  await pageA.locator(".chip", { hasText: "🔥" }).first().waitFor();
-  await pageB.locator(".chip", { hasText: "🔥" }).first().waitFor({ timeout: 10000 });
+  await pageA.locator(".reaction", { hasText: "🔥" }).first().waitFor();
+  await pageB.locator(".reaction", { hasText: "🔥" }).first().waitFor({ timeout: 10000 });
 
   const own = pageB.locator(".msg", { hasText: "я пойду" }).first();
   await own.hover();

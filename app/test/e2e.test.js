@@ -23,7 +23,7 @@ async function register(page, { name, code = "secret123", inviteCode }) {
   await page.getByRole("button", { name: "У меня инвайт" }).click();
   await page.getByLabel("Код приглашения").fill(inviteCode ?? invite);
   await page.getByLabel("Имя").fill(name);
-  await page.getByLabel("Код доступа").fill(code);
+  await page.getByLabel("Пароль").fill(code);
   await page.getByRole("button", { name: "Создать аккаунт" }).click();
 }
 
@@ -36,7 +36,7 @@ test("клиент: регистрация, каналы, отправка и д
   const pageA = await contextA.newPage();
   await register(pageA, { name: "Артём" });
 
-  await pageA.getByRole("heading", { name: "#general" }).waitFor();
+  await pageA.locator(".chan.active", { hasText: "general" }).waitFor();
   const channels = await pageA.locator(".chan").allTextContents();
   assert.ok(channels.some((c) => c.includes("general")), "канал general в панели");
   assert.ok(channels.some((c) => c.includes("Кухня")), "голосовой канал в панели");
@@ -48,7 +48,7 @@ test("клиент: регистрация, каналы, отправка и д
   const contextB = await browser.newContext();
   const pageB = await contextB.newPage();
   await register(pageB, { name: "Мира" });
-  await pageB.getByRole("heading", { name: "#general" }).waitFor();
+  await pageB.locator(".chan.active", { hasText: "general" }).waitFor();
   await pageB.getByText("привет из теста").waitFor({ timeout: 10000 });
 
   await pageB.getByPlaceholder("Написать в #general").fill("и тебе привет");
@@ -66,7 +66,7 @@ test("клиент: второй сервер создаётся, переклю
 
   const owner = await browser.newPage();
   await register(owner, { name: "Артём" });
-  await owner.getByRole("heading", { name: "#general" }).waitFor();
+  await owner.locator(".chan.active", { hasText: "general" }).waitFor();
 
   await owner.getByRole("button", { name: "Новый сервер" }).click();
   await owner.getByPlaceholder("Название сервера").fill("Вторая");
@@ -84,14 +84,14 @@ test("клиент: второй сервер создаётся, переклю
 
   const guest = await browser.newPage();
   await register(guest, { name: "Мира" });
-  await guest.getByRole("heading", { name: "#general" }).waitFor();
+  await guest.locator(".chan.active", { hasText: "general" }).waitFor();
   assert.equal(await guest.locator(".coin[title='Вторая']").count(), 0, "чужой сервер не виден");
 
   await guest.getByRole("button", { name: "Новый сервер" }).click();
   await guest.getByPlaceholder("Код приглашения").fill(code);
   await guest.getByRole("button", { name: "Присоединиться" }).click();
   await guest.locator(".coin[title='Вторая']").waitFor({ timeout: 10000 });
-  await guest.getByRole("heading", { name: "#general" }).waitFor();
+  await guest.locator(".chan.active", { hasText: "general" }).waitFor();
 });
 
 test("клиент: пинг до сервера показывается в шапке", async (t) => {
@@ -101,9 +101,9 @@ test("клиент: пинг до сервера показывается в ш�
 
   const page = await browser.newPage();
   await register(page, { name: "Артём" });
-  await page.getByRole("heading", { name: "#general" }).waitFor();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
 
-  const pill = page.locator(".pill", { hasText: "мс" });
+  const pill = page.locator(".stat", { hasText: "мс" });
   await pill.waitFor({ timeout: 15000 });
   const text = await pill.textContent();
   const value = Number(text.replace(/[^\d]/g, ""));
@@ -128,12 +128,13 @@ test("клиент: неверный код доступа при входе о�
 
   const page = await browser.newPage();
   await register(page, { name: "Артём" });
-  await page.getByRole("heading", { name: "#general" }).waitFor();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
 
-  await page.getByRole("button", { name: "выйти" }).click();
+  await page.getByRole("button", { name: "Настройки" }).click();
+  await page.getByRole("button", { name: "Выйти из аккаунта" }).click();
   await page.getByLabel("Имя").fill("Артём");
-  await page.getByLabel("Код доступа").fill("wrong-code");
+  await page.getByLabel("Пароль").fill("wrong-code");
   await page.getByRole("button", { name: "Войти" }).click();
-  await page.getByText("Неверное имя или код доступа").waitFor();
+  await page.getByText("Неверное имя или пароль").waitFor();
   assert.equal(await page.locator(".chan").count(), 0, "в чат не пустило");
 });

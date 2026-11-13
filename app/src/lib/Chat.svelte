@@ -45,7 +45,7 @@
   let voice = null;
   let showSettings = false;
   let showServer = false;
-  let showMembers = false;
+  let membersHidden = typeof window !== "undefined" && window.innerWidth <= 860;
   let sideOpen = false;
   let unread = new Set();
   let replyTo = null;
@@ -93,6 +93,7 @@
   $: textList = channels.filter((c) => c.type === "text");
   $: voiceList = channels.filter((c) => c.type === "voice");
   $: inRoom = current?.type === "voice";
+  $: voiceChannel = voiceList.find((c) => c.id === vs.channelId) || null;
   $: if (voice && vs.channelId === null && !vs.joining && inRoom) {
     const back = textList[0];
     if (back) openChannel(back);
@@ -114,6 +115,11 @@
 
   $: onlineMembers = members.filter((m) => online.has(m.id));
   $: offlineMembers = members.filter((m) => !online.has(m.id));
+
+  const roleOf = (userId) => {
+    const member = members.find((m) => m.id === userId);
+    return member?.roles?.[0] || null;
+  };
 
   async function openChannel(channel) {
     sideOpen = false;
@@ -318,14 +324,6 @@
   }
 
   const canManage = () => permissions.includes("manage_messages");
-
-  function sameGroup(prev, next) {
-    if (!prev) return false;
-    if (prev.userId !== next.userId) return false;
-    if (prev.deleted || next.deleted) return false;
-    if (next.reply) return false;
-    return next.createdAt - prev.createdAt < 5 * 60 * 1000;
-  }
 
   function dayLabel(ts) {
     const date = new Date(ts);
@@ -588,6 +586,11 @@
     runAction(action);
   }
 
+  function openProfile() {
+    sideOpen = false;
+    showSettings = true;
+  }
+
   onMount(async () => {
     const boot = await api("/api/bootstrap");
     spaces = boot.spaces || [];
@@ -645,11 +648,54 @@
 
 <svelte:window on:keydown={onHotkey} />
 
-<div class="shell">
-  <aside class="side" class:open={sideOpen}>
+<header class="topbar">
+  <button class="icon-btn menu-btn" aria-label="Каналы" on:click={() => (sideOpen = !sideOpen)}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  </button>
+
+  <a class="brand" href="#" aria-label="Nexus" on:click|preventDefault={() => {}}>
     <Logo />
-    <div class="rail">
-      <div class="group">текст</div>
+  </a>
+
+  <div class="top-actions">
+    <div class="stat" title="Задержка до сервера">
+      <span class="dot-live" class:off={status !== "online"}></span>
+      <span>{ping === null ? "—" : `${ping} мс`}</span>
+    </div>
+    {#if !inRoom}
+      <button class="icon-btn" class:on={searchOpen} aria-label="Поиск" title="Поиск (Ctrl+K)" on:click={() => { searchOpen = !searchOpen; pinsOpen = false; }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="M16 16l4.5 4.5" />
+        </svg>
+      </button>
+      <button class="icon-btn" class:on={pinsOpen} aria-label="Закреплённые" title="Закреплённые" on:click={openPins}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
+          <path d="M12 13v7" />
+        </svg>
+      </button>
+    {/if}
+    <button class="icon-btn" class:on={!membersHidden} aria-label="Участники" title="Участники" on:click={() => (membersHidden = !membersHidden)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="9" cy="8" r="3.2" />
+        <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+        <path d="M16 5.5a3 3 0 0 1 0 5.6" />
+        <path d="M17.5 14.2A5.5 5.5 0 0 1 20.5 19" />
+      </svg>
+    </button>
+    <button class="profile-btn" aria-label="Настройки" on:click={openProfile}>
+      <Avatar name={user.name} color={user.color} avatar={user.avatar} size={28} radius={9} />
+    </button>
+  </div>
+</header>
+
+<main class="stage" class:hide-members={membersHidden}>
+  <aside class="sidebar" class:open={sideOpen}>
+    <div class="chan-rail">
+      <div class="chan-group">текст</div>
       {#each textList as channel (channel.id)}
         <button
           class="chan"
@@ -657,12 +703,12 @@
           on:click={() => openChannel(channel)}
         >
           <span class="hash">#</span>
-          <span>{channel.name}</span>
+          <span class="nm">{channel.name}</span>
           {#if unread.has(channel.id)}<i class="unread"></i>{/if}
         </button>
       {/each}
 
-      <div class="group">голос</div>
+      <div class="chan-group">голос</div>
       {#each voiceList as channel (channel.id)}
         <button
           class="chan"
@@ -671,7 +717,7 @@
           on:click={() => openVoice(channel)}
         >
           <span class="hash">◍</span>
-          <span>{channel.name}</span>
+          <span class="nm">{channel.name}</span>
           {#if (vs.rosters.get(channel.id) || []).length}
             <i class="chan-count">{(vs.rosters.get(channel.id) || []).length}</i>
           {/if}
@@ -699,16 +745,16 @@
     </div>
 
     {#if vs.channelId && !inRoom}
-      <div class="voice-mini">
-        <button class="vm-who" on:click={() => openVoice(voiceList.find((c) => c.id === vs.channelId))}>
-          <span class="vm-dot"></span>
-          <span class="vm-text">
-            <b>{voiceList.find((c) => c.id === vs.channelId)?.name || "голос"}</b>
-            <span>{(vs.rosters.get(vs.channelId) || []).length} в канале</span>
-          </span>
-        </button>
-        <div class="vm-btns">
-          <button class:off={vs.muted} title="Микрофон" aria-label="Микрофон" on:click={() => voice.toggleMic()}>
+      <div class="voice-seg" class:muted={vs.muted}>
+        <div class="voice-top">
+          <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="voice-info">
+            <span class="lbl">голос · live</span>
+            <span class="nm">{voiceChannel?.name || "канал"}</span>
+          </div>
+        </div>
+        <div class="voice-btns">
+          <button class="vbtn" class:off={vs.muted} title="Микрофон" aria-label="Микрофон" on:click={() => voice.toggleMic()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               {#if vs.muted}
                 <path d="M9 9v3a3 3 0 0 0 5.1 2.1" /><path d="M15 10.5V6a3 3 0 0 0-5.6-1.5" /><path d="M5 11a7 7 0 0 0 10.6 6" /><path d="M19 11a7 7 0 0 1-.8 3.2" /><path d="M12 18v3" /><path d="m3 3 18 18" />
@@ -717,12 +763,22 @@
               {/if}
             </svg>
           </button>
-          <button class:off={vs.deafened} title="Звук" aria-label="Звук" on:click={() => voice.toggleDeafen()}>
+          <button class="vbtn" class:off={vs.deafened} title="Звук" aria-label="Звук" on:click={() => voice.toggleDeafen()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               <path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="2.5" y="14" width="4" height="6" rx="1.6" /><rect x="17.5" y="14" width="4" height="6" rx="1.6" />
             </svg>
           </button>
-          <button class="leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
+          <button class="vbtn" class:off={!vs.cam} title="Камера" aria-label="Камера" on:click={() => voice.toggleCamera().catch(() => {})}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 12 6-3.5v7l-6-3.5" />
+            </svg>
+          </button>
+          <button class="vbtn" class:off={!vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={() => voice.toggleScreen().catch(() => {})}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <rect x="2.5" y="4" width="19" height="13" rx="2.5" /><path d="M9 21h6" /><path d="M12 17v4" />
+            </svg>
+          </button>
+          <button class="vbtn leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
               <path d="M15.5 14.5 14 16c-3-1-5-3-6-6l1.5-1.5a1.5 1.5 0 0 0 .2-1.8L8 3.5A1.5 1.5 0 0 0 6.4 2.7H3.3A1.5 1.5 0 0 0 1.8 4.3C2.4 11 7 15.6 13.7 16.2a1.5 1.5 0 0 0 1.6-1.5Z" /><path d="m17 8 5 5" /><path d="m22 8-5 5" />
             </svg>
@@ -730,65 +786,9 @@
         </div>
       </div>
     {/if}
-
-    <div class="me">
-      <button class="me-btn" on:click={() => (showSettings = true)}>
-        <Avatar name={user.name} color={user.color} avatar={user.avatar} size={32} radius={10} />
-        <span class="who">
-          <b>{user.name}</b>
-          <span class:online={status === "online"}>
-            {status === "online" ? STATUS_LABEL[user.status] || "в сети" : "нет связи"}
-          </span>
-        </span>
-      </button>
-      <button class="logout" on:click={logout}>выйти</button>
-    </div>
   </aside>
 
-  <section class="main">
-    <header class="head">
-      <button class="burger" aria-label="Каналы" on:click={() => (sideOpen = !sideOpen)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M4 7h16M4 12h16M4 17h16" />
-        </svg>
-      </button>
-      <h2>{current ? `${inRoom ? "◍" : "#"}${current.name}` : "Nexus"}</h2>
-      <span class="topic">{current?.topic || ""}</span>
-      <div class="spacer"></div>
-      <div class="pill" title="Задержка до сервера">
-        <span class="dot" class:off={status !== "online"}></span>
-        {ping === null ? "—" : `${ping} мс`}
-      </div>
-      <div class="pill">
-        {online.size} в сети
-      </div>
-      {#if !inRoom}
-        <button class="icon-btn" class:on={searchOpen} aria-label="Поиск" title="Поиск (Ctrl+K)" on:click={() => { searchOpen = !searchOpen; pinsOpen = false; }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <circle cx="11" cy="11" r="6.5" />
-            <path d="M16 16l4.5 4.5" />
-          </svg>
-        </button>
-        <button class="icon-btn" class:on={pinsOpen} aria-label="Закреплённые" title="Закреплённые" on:click={openPins}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
-            <path d="M12 13v7" />
-          </svg>
-        </button>
-      {/if}
-      <button class="icon-btn" class:on={showMembers} aria-label="Участники" on:click={() => (showMembers = !showMembers)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
-          <circle cx="9" cy="8" r="3.2" />
-          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
-          <path d="M16 5.5a3 3 0 0 1 0 5.6" />
-          <path d="M17.5 14.2A5.5 5.5 0 0 1 20.5 19" />
-        </svg>
-      </button>
-      <button class="profile-btn" aria-label="Настройки" on:click={() => { sideOpen = false; showSettings = true; }}>
-        <Avatar name={user.name} color={user.color} avatar={user.avatar} size={28} radius={9} />
-      </button>
-    </header>
-
+  <section class="stream-wrap" class:voice-mode={inRoom}>
     {#if inRoom}
       <Room channel={current} {user} people={members} {vs} {voice} />
     {:else if searchOpen}
@@ -840,145 +840,167 @@
         </div>
       </div>
     {:else}
-    <div
-      class="messages"
-      class:drag={dragOver}
-      bind:this={listEl}
-      on:scroll={onScroll}
-      on:dragover|preventDefault={() => (dragOver = true)}
-      on:dragleave={() => (dragOver = false)}
-      on:drop={onDrop}
-    >
-      {#if loadingOlder}<div class="older">загружаю…</div>{/if}
-      {#if messages.length === 0}
-        <div class="empty">Тут пока тихо. Напиши первым.</div>
-      {/if}
-      {#each messages as message, i (message.id)}
-        {#if newDay(messages[i - 1], message)}
-          <div class="day"><span>{dayLabel(message.createdAt)}</span></div>
-        {/if}
-        <div id={`m-${message.id}`} class:flash={highlightId === message.id}>
-          <Message
-            {message}
-            me={user}
-            canManage={canManage()}
-            grouped={sameGroup(messages[i - 1], message) && !newDay(messages[i - 1], message)}
-            onReply={(m) => { replyTo = m; inputEl?.focus(); }}
-            onEdit={editMessage}
-            onDelete={deleteMessage}
-            onReact={react}
-            onPin={pin}
-            onJump={jumpTo}
-          />
-        </div>
-      {/each}
-    </div>
-
-    <div class="typing">{typingName ? `${typingName} печатает…` : ""}</div>
-
-    {#if replyTo}
-      <div class="reply-bar">
-        <span class="bar"></span>
-        <span>ответ <b style="color:{replyTo.color || 'inherit'}">{replyTo.name}</b></span>
-        <span class="reply-snip">{replyTo.text}</span>
-        <button aria-label="Отменить ответ" on:click={() => (replyTo = null)}>✕</button>
-      </div>
-    {/if}
-
-    {#if pending.length}
-      <div class="pending">
-        {#each pending as file (file.url)}
-          <div class="pend">
-            {#if file.mime.startsWith("image/")}
-              <img src={fileUrl(file.url)} alt={file.name} />
-            {:else}
-              <span class="pend-icon">↓</span>
+      <div
+        class="stream"
+        class:drag={dragOver}
+        bind:this={listEl}
+        on:scroll={onScroll}
+        on:dragover|preventDefault={() => (dragOver = true)}
+        on:dragleave={() => (dragOver = false)}
+        on:drop={onDrop}
+      >
+        <div class="stream-inner">
+          {#if loadingOlder}<div class="older">загружаю…</div>{/if}
+          {#if messages.length === 0}
+            <div class="empty">Тут пока тихо. Напиши первым.</div>
+          {/if}
+          {#each messages as message, i (message.id)}
+            {#if newDay(messages[i - 1], message)}
+              <div class="divider"><div class="g"></div><div class="l"><span>{dayLabel(message.createdAt)}</span></div></div>
             {/if}
-            <span class="pend-name">{file.name}</span>
-            <button aria-label="Убрать" on:click={() => (pending = pending.filter((f) => f.url !== file.url))}>✕</button>
-          </div>
-        {/each}
+            <div id={`m-${message.id}`} class:flash={highlightId === message.id}>
+              <Message
+                {message}
+                me={user}
+                canManage={canManage()}
+                role={roleOf(message.userId)}
+                onReply={(m) => { replyTo = m; inputEl?.focus(); }}
+                onEdit={editMessage}
+                onDelete={deleteMessage}
+                onReact={react}
+                onPin={pin}
+                onJump={jumpTo}
+              />
+            </div>
+          {/each}
+        </div>
       </div>
-    {/if}
 
-    <form class="composer" on:submit|preventDefault={send}>
-      <input
-        class="hidden-file"
-        type="file"
-        multiple
-        bind:this={fileInput}
-        on:change={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
-      />
-      <button type="button" class="tool" title="Прикрепить" aria-label="Прикрепить" on:click={() => fileInput?.click()}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
-      <div class="emoji-wrap">
-        <button type="button" class="tool" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>☺</button>
-        {#if emojiOpen}
-          <div class="emoji-pop">
-            {#each QUICK_EMOJI as emoji}
-              <button type="button" on:click={() => { text += emoji; emojiOpen = false; inputEl?.focus(); }}>{emoji}</button>
-            {/each}
-          </div>
-        {/if}
+      <div class="typing" class:show={!!typingName}>
+        <span class="typing-dots"><i></i><i></i><i></i></span>
+        <span>{typingName ? `${typingName} печатает` : ""}</span>
       </div>
-      <textarea
-        bind:this={inputEl}
-        bind:value={text}
-        on:keydown={onKey}
-        on:paste={onPaste}
-        rows="1"
-        placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
-        disabled={!current}
-      ></textarea>
-      <button class="send" type="submit" aria-label="Отправить" disabled={uploading}>
-        {uploading ? "…" : "↑"}
-      </button>
-    </form>
+
+      {#if replyTo}
+        <div class="reply-bar">
+          <span class="bar"></span>
+          <span>ответ <b style="color:{replyTo.color || 'inherit'}">{replyTo.name}</b></span>
+          <span class="reply-snip">{replyTo.text}</span>
+          <button aria-label="Отменить ответ" on:click={() => (replyTo = null)}>✕</button>
+        </div>
+      {/if}
+
+      {#if pending.length}
+        <div class="pending">
+          {#each pending as file (file.url)}
+            <div class="pend">
+              {#if file.mime.startsWith("image/")}
+                <img src={fileUrl(file.url)} alt={file.name} />
+              {:else}
+                <span class="pend-icon">↓</span>
+              {/if}
+              <span class="pend-name">{file.name}</span>
+              <button aria-label="Убрать" on:click={() => (pending = pending.filter((f) => f.url !== file.url))}>✕</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      <form class="composer" on:submit|preventDefault={send}>
+        <input
+          class="hidden-file"
+          type="file"
+          multiple
+          bind:this={fileInput}
+          on:change={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
+        />
+        <button type="button" class="comp-btn" title="Прикрепить" aria-label="Прикрепить" on:click={() => fileInput?.click()}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <div class="emoji-wrap">
+          <button type="button" class="comp-btn" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+              <circle cx="12" cy="12" r="8.5" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /><path d="M9 9.5h.01M15 9.5h.01" />
+            </svg>
+          </button>
+          {#if emojiOpen}
+            <div class="emoji-pop">
+              {#each QUICK_EMOJI as emoji}
+                <button type="button" on:click={() => { text += emoji; emojiOpen = false; inputEl?.focus(); }}>{emoji}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        <textarea
+          bind:this={inputEl}
+          bind:value={text}
+          on:keydown={onKey}
+          on:paste={onPaste}
+          rows="1"
+          placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
+          disabled={!current}
+        ></textarea>
+        <button class="send-btn" type="submit" aria-label="Отправить" disabled={uploading}>
+          {#if uploading}
+            <span>…</span>
+          {:else}
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <path d="M4 12h15" /><path d="m13 6 6 6-6 6" />
+            </svg>
+          {/if}
+        </button>
+      </form>
     {/if}
   </section>
 
-  {#if sideOpen}
-    <button class="scrim" aria-label="Закрыть каналы" on:click={() => (sideOpen = false)}></button>
-  {/if}
+  <aside class="members">
+    <div class="mem-head">
+      участники
+      <span class="count">{members.length}</span>
+    </div>
 
-  {#if showMembers}
-    <aside class="members">
-      <div class="members-head">участники · {members.length}</div>
-      {#if onlineMembers.length}
-        <div class="members-grp">в сети — {onlineMembers.length}</div>
+    {#if onlineMembers.length}
+      <div class="mem-group">
+        <h3>в сети — {onlineMembers.length}</h3>
         {#each onlineMembers as member (member.id)}
-          <div class="member">
-            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={30} radius={9} />
-            <div class="member-who">
-              <b style="color:{member.roles[0]?.color || 'inherit'}">{member.name}</b>
-              {#if member.roles.length}
-                <span>{member.roles.map((r) => r.name).join(" · ")}</span>
-              {/if}
+          <div class="mem">
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} />
+            <i class="mem-dot" class:away={statusOf(member.id) === "away"} class:dnd={statusOf(member.id) === "dnd"}></i>
+            <div class="mem-info">
+              <div class="mem-name" style="color:{member.roles[0]?.color || 'inherit'}">{member.name}</div>
+              <div class="mem-act" class:live={member.roles.length > 0}>
+                {member.roles.length ? member.roles.map((r) => r.name).join(" · ") : STATUS_LABEL[statusOf(member.id)] || "в сети"}
+              </div>
             </div>
-            <i class="member-dot" class:away={statusOf(member.id) === "away"} class:dnd={statusOf(member.id) === "dnd"}></i>
           </div>
         {/each}
-      {/if}
-      {#if offlineMembers.length}
-        <div class="members-grp">не в сети — {offlineMembers.length}</div>
+      </div>
+    {/if}
+
+    {#if offlineMembers.length}
+      <div class="mem-group">
+        <h3>не в сети — {offlineMembers.length}</h3>
         {#each offlineMembers as member (member.id)}
-          <div class="member off">
-            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={30} radius={9} />
-            <div class="member-who">
-              <b>{member.name}</b>
+          <div class="mem off">
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} />
+            <div class="mem-info">
+              <div class="mem-name">{member.name}</div>
               {#if member.roles.length}
-                <span>{member.roles.map((r) => r.name).join(" · ")}</span>
+                <div class="mem-act">{member.roles.map((r) => r.name).join(" · ")}</div>
               {/if}
             </div>
           </div>
         {/each}
-      {/if}
-    </aside>
-  {/if}
-</div>
+      </div>
+    {/if}
+  </aside>
+</main>
+
+{#if sideOpen}
+  <button class="scrim open" aria-label="Закрыть каналы" on:click={() => (sideOpen = false)}></button>
+{/if}
 
 <Toasts />
 
@@ -987,6 +1009,7 @@
     {user}
     on:close={() => (showSettings = false)}
     on:user={(e) => applyUser(e.detail)}
+    on:logout={logout}
   />
 {/if}
 
@@ -994,7 +1017,7 @@
   <div class="modal" role="dialog" aria-modal="true" on:click|self={() => (showNewServer = false)}>
     <div class="new-card">
       <div class="set-head">
-        <h2>Новый сервер</h2>
+        <h2>Сервер</h2>
         <button class="icon-btn" aria-label="Закрыть" on:click={() => (showNewServer = false)}>✕</button>
       </div>
       <div class="new-body">
@@ -1011,7 +1034,7 @@
         </div>
         <div class="new-sep"><span>или</span></div>
         <div class="set-field">
-          <label>войти по коду</label>
+          <label>войти по коду приглашения</label>
           <input
             class="set-input"
             bind:value={joinCode}
