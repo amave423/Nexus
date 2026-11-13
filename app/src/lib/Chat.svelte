@@ -959,7 +959,7 @@
         />
         <button type="button" class="comp-btn" title="Прикрепить" aria-label="Прикрепить" on:click={() => fileInput?.click()}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <path d="M12 5v14M5 12h14" />
+            <path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" />
           </svg>
         </button>
         <textarea
@@ -1013,8 +1013,8 @@
             <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={dotOf(member.id)} />
             <div class="mem-info">
               <div class="mem-name" style="color:{member.roles[0]?.color || 'inherit'}">{member.name}</div>
-              <div class="mem-act" class:live={member.roles.length > 0}>
-                {member.roles.length ? member.roles.map((r) => r.name).join(" · ") : STATUS_LABEL[statusOf(member.id)] || "в сети"}
+              <div class="mem-act">
+                {STATUS_LABEL[statusOf(member.id)] || "в сети"}{member.roles.length ? ` · ${member.roles.map((r) => r.name).join(" · ")}` : ""}
               </div>
             </div>
           </div>
@@ -1030,7 +1030,7 @@
             <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={OFFLINE_DOT} />
             <div class="mem-info">
               <div class="mem-name">{member.name}</div>
-              <div class="mem-act">{lastSeenText(member.id)}{member.roles.length ? ` · ${member.roles.map((r) => r.name).join(" · ")}` : ""}</div>
+              <div class="mem-act">{lastSeenText(member.id)}</div>
             </div>
           </div>
         {/each}
