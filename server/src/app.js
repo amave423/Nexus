@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { hashCode, verifyCode, newToken, newInvite } from "./auth.js";
 import { Hub } from "./realtime.js";
 import { Voice } from "./voice.js";
-import { seedRoles } from "./db.js";
+import { seedRoles, assignRole } from "./db.js";
 
 const COLORS = ["#c8ff3d", "#6fe3ff", "#ff6b8a", "#ffb454", "#b18cff", "#7dffb0"];
 const STATUSES = ["online", "idle", "dnd", "invisible"];
@@ -325,6 +325,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)"
     ).run(inv.spaceId, userId, isOwner ? "owner" : "member", now);
     if (isOwner) db.prepare("UPDATE spaces SET owner_id = ? WHERE id = ?").run(userId, inv.spaceId);
+    assignRole(db, inv.spaceId, userId, isOwner ? "Владелец" : "Участник");
     db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(inv.code);
 
     const token = newToken();
@@ -453,6 +454,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)"
     ).run(spaceId, req.user.id, now);
     seedRoles(db, spaceId);
+    assignRole(db, spaceId, req.user.id, "Владелец");
     const ins = db.prepare(
       "INSERT INTO channels (space_id, name, type, topic, position) VALUES (?, ?, ?, '', ?)"
     );
@@ -471,6 +473,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       db.prepare(
         "INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, 'member', ?)"
       ).run(inv.spaceId, req.user.id, now);
+      assignRole(db, inv.spaceId, req.user.id, "Участник");
       db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(inv.code);
       hub.broadcastSpace(inv.spaceId, {
         t: "member.update",

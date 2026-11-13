@@ -316,3 +316,21 @@ test("название сервера меняет только владелец
   assert.equal(deleted.statusCode, 200);
   await app.close();
 });
+
+test("владелец получает роль владельца, остальные — участника", async () => {
+  const { app, owner, guest, headers } = await setup();
+
+  const mine = await app.inject({ method: "GET", url: "/api/bootstrap", headers: headers(owner) });
+  const me = mine.json().members.find((m) => m.name === "Артём");
+  assert.ok(me, "владелец есть в составе");
+  assert.equal(me.roles.length, 1, "у владельца ровно одна роль");
+  assert.equal(me.roles[0].name, "Владелец");
+  assert.ok(me.roles[0].permissions.includes("manage_server"));
+
+  const theirs = await app.inject({ method: "GET", url: "/api/bootstrap", headers: headers(guest) });
+  const guestRow = theirs.json().members.find((m) => m.name === "Мира");
+  assert.equal(guestRow.roles.length, 1, "у вошедшего есть роль по умолчанию");
+  assert.equal(guestRow.roles[0].name, "Участник");
+
+  await app.close();
+});

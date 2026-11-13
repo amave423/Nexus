@@ -46,6 +46,10 @@
   let showSettings = false;
   let showServer = false;
   let membersHidden = typeof window !== "undefined" && window.innerWidth <= 860;
+  let membersTouched = false;
+  const syncMembers = () => {
+    if (!membersTouched) membersHidden = window.innerWidth <= 860;
+  };
   let sideOpen = false;
   let unread = new Set();
   let replyTo = null;
@@ -593,6 +597,8 @@
   }
 
   onMount(async () => {
+    syncMembers();
+    window.addEventListener("resize", syncMembers);
     const boot = await api("/api/bootstrap");
     spaces = boot.spaces || [];
     applyState(boot);
@@ -629,6 +635,7 @@
     clearTimeout(typingTimer);
     unsubscribePrefs?.();
     window.removeEventListener("keydown", onHotkey);
+    window.removeEventListener("resize", syncMembers);
   });
 
   async function logout() {
@@ -679,7 +686,7 @@
         </svg>
       </button>
     {/if}
-    <button class="icon-btn" class:on={!membersHidden} aria-label="Участники" title="Участники" on:click={() => (membersHidden = !membersHidden)}>
+    <button class="icon-btn" class:on={!membersHidden} aria-label="Участники" title="Участники" on:click={() => { membersTouched = true; membersHidden = !membersHidden; }}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
         <circle cx="9" cy="8" r="3.2" />
         <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
@@ -746,13 +753,12 @@
       >+</button>
     </div>
 
-    {#if vs.channelId && !inRoom}
-      <div class="voice-seg" class:muted={vs.muted}>
+    <div class="voice-seg" class:muted={vs.muted} class:idle={!vs.channelId}>
         <div class="voice-top">
-          <div class="wave"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="wave" class:still={!vs.channelId}><i></i><i></i><i></i><i></i><i></i></div>
           <div class="voice-info">
-            <span class="lbl">голос · live</span>
-            <span class="nm">{voiceChannel?.name || "канал"}</span>
+            <span class="lbl">{vs.channelId ? "в голосовом" : "не в голосе"}</span>
+            <span class="nm">{vs.channelId ? voiceChannel?.name || "канал" : user.name}</span>
           </div>
         </div>
         <div class="voice-btns">
@@ -770,24 +776,31 @@
               <path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="2.5" y="14" width="4" height="6" rx="1.6" /><rect x="17.5" y="14" width="4" height="6" rx="1.6" />
             </svg>
           </button>
-          <button class="vbtn" class:off={!vs.cam} title="Камера" aria-label="Камера" on:click={() => voice.toggleCamera().catch(() => {})}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-              <rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 12 6-3.5v7l-6-3.5" />
-            </svg>
-          </button>
-          <button class="vbtn" class:off={!vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={() => voice.toggleScreen().catch(() => {})}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-              <rect x="2.5" y="4" width="19" height="13" rx="2.5" /><path d="M9 21h6" /><path d="M12 17v4" />
-            </svg>
-          </button>
-          <button class="vbtn leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-              <path d="M15.5 14.5 14 16c-3-1-5-3-6-6l1.5-1.5a1.5 1.5 0 0 0 .2-1.8L8 3.5A1.5 1.5 0 0 0 6.4 2.7H3.3A1.5 1.5 0 0 0 1.8 4.3C2.4 11 7 15.6 13.7 16.2a1.5 1.5 0 0 0 1.6-1.5Z" /><path d="m17 8 5 5" /><path d="m22 8-5 5" />
-            </svg>
-          </button>
+          {#if vs.channelId}
+            <button class="vbtn" class:off={!vs.cam} title="Камера" aria-label="Камера" on:click={() => voice.toggleCamera().catch(() => {})}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 12 6-3.5v7l-6-3.5" />
+              </svg>
+            </button>
+            <button class="vbtn" class:off={!vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={() => voice.toggleScreen().catch(() => {})}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <rect x="2.5" y="4" width="19" height="13" rx="2.5" /><path d="M9 21h6" /><path d="M12 17v4" />
+              </svg>
+            </button>
+            <button class="vbtn leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M15.5 14.5 14 16c-3-1-5-3-6-6l1.5-1.5a1.5 1.5 0 0 0 .2-1.8L8 3.5A1.5 1.5 0 0 0 6.4 2.7H3.3A1.5 1.5 0 0 0 1.8 4.3C2.4 11 7 15.6 13.7 16.2a1.5 1.5 0 0 0 1.6-1.5Z" /><path d="m17 8 5 5" /><path d="m22 8-5 5" />
+              </svg>
+            </button>
+          {:else}
+            <button class="vbtn" title="Параметры" aria-label="Параметры" on:click={openProfile}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 11.5 4a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 22.4 11a2 2 0 1 1 0 4Z" />
+              </svg>
+            </button>
+          {/if}
         </div>
       </div>
-    {/if}
   </aside>
 
   <section class="stream-wrap" class:voice-mode={inRoom}>

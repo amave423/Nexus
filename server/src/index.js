@@ -1,6 +1,6 @@
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDb, seed, repairOwners } from "./db.js";
+import { openDb, seed, repairOwners, repairRoles } from "./db.js";
 import { buildApp } from "./app.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,7 @@ if (!hasSpace) {
   console.log("[nexus] создано пространство по умолчанию");
 }
 repairOwners(db);
+repairRoles(db);
 
 const app = buildApp({ db, logger: false, uploadDir: join(dataDir, "uploads") });
 

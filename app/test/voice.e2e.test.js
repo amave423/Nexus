@@ -121,11 +121,11 @@ test("голос: два клиента слышат друг друга в ка
   );
   assert.ok(liveTracks.some((item) => item.tracks === 1 && item.live), "звук собеседника играет");
 
-  await pageA.getByTitle("Микрофон").click();
+  await pageA.locator(".room").getByTitle("Микрофон").click();
   await pageB.locator(".seat-mute").first().waitFor({ timeout: 10000 });
   assert.equal(await pageB.locator(".seat-mute").count(), 1, "у Миры видно, что Артём замьючен");
 
-  await pageA.getByTitle("Камера").click();
+  await pageA.locator(".room").getByTitle("Камера").click();
   await pageB.locator(".cams .cam").first().waitFor({ timeout: 20000 });
   const camTracks = await pageB.evaluate(() =>
     [...document.querySelectorAll(".cams video")].filter(
@@ -253,8 +253,8 @@ test("голос: звук не пропадает при переходе в т
   assert.equal(await pageB.locator(".seat-mute").count(), 1, "мьют из текстового канала виден в комнате");
 
   await pageA.locator(".voice-seg").getByTitle("Выйти из канала").click();
-  await pageA.locator(".voice-seg").waitFor({ state: "detached", timeout: 10000 });
-  assert.equal(await pageA.locator(".voice-seg").count(), 0, "вышел из голоса из текстового канала");
+  await pageA.locator(".voice-seg").getByTitle("Выйти из канала").waitFor({ state: "detached", timeout: 10000 });
+  assert.equal(await pageA.locator(".voice-seg").count(), 1, "консоль осталась в состоянии «не в голосе»");
 
   await contextA.close();
   await contextB.close();
@@ -332,13 +332,13 @@ test("голос: мьют с включённым шумодавом дейст
   assert.equal(mic.noise, "rnnoise", "шумодав включён");
   assert.equal(mic.producer, true, "до мьюта дорожка передаётся");
 
-  await page.getByTitle("Микрофон").click();
+  await page.locator(".room").getByTitle("Микрофон").click();
   await page.waitForTimeout(400);
   const muted = await page.evaluate(() => window.__nexusVoice.micInfo());
   assert.equal(muted.producer, false, "дорожка, которая уходит в SFU, заглушена");
   assert.deepEqual(muted.raw, [false], "сырой микрофон тоже заглушен");
 
-  await page.getByTitle("Микрофон").click();
+  await page.locator(".room").getByTitle("Микрофон").click();
   await page.waitForTimeout(400);
   const back = await page.evaluate(() => window.__nexusVoice.micInfo());
   assert.equal(back.producer, true, "после мьюта снова передаёт");

@@ -128,7 +128,9 @@ test("настройки сервера: роль создаётся и назн
   await owner.getByRole("button", { name: "Сохранить" }).click();
   await owner.locator(".role-chips i", { hasText: "Дизайнер" }).waitFor();
 
-  await guest.locator(".icon-btn[aria-label='Участники']").click();
+  if (await guest.locator(".stage.hide-members").count()) {
+    await guest.locator(".icon-btn[aria-label='Участники']").click();
+  }
   await guest.locator(".mem-act", { hasText: "Дизайнер" }).waitFor({ timeout: 10000 });
 });
 

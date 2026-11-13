@@ -162,6 +162,33 @@ export function repairOwners(db) {
   }
 }
 
+export function assignRole(db, spaceId, userId, roleName) {
+  const role = db.prepare("SELECT id FROM roles WHERE space_id = ? AND name = ?").get(spaceId, roleName);
+  if (!role) return;
+  db.prepare("INSERT OR IGNORE INTO member_roles (space_id, user_id, role_id) VALUES (?, ?, ?)").run(
+    spaceId,
+    userId,
+    role.id
+  );
+}
+
+export function repairRoles(db) {
+  const rows = db
+    .prepare(
+      `SELECT sm.space_id AS spaceId, sm.user_id AS userId, s.owner_id AS ownerId
+         FROM space_members sm
+         JOIN spaces s ON s.id = sm.space_id
+        WHERE NOT EXISTS (
+          SELECT 1 FROM member_roles mr WHERE mr.space_id = sm.space_id AND mr.user_id = sm.user_id
+        )`
+    )
+    .all();
+  for (const row of rows) {
+    assignRole(db, row.spaceId, row.userId, row.userId === row.ownerId ? "Владелец" : "Участник");
+  }
+  return rows.length;
+}
+
 export function seedRoles(db, spaceId) {
   const now = Date.now();
   const ins = db.prepare(

@@ -74,7 +74,6 @@
       <span class="name" style="color:{message.color || 'inherit'}">{message.name}</span>
       {#if role}<span class="role" style="color:{role.color}">{role.name}</span>{/if}
       {#if message.pinned}<span class="pin-tag">закреплено</span>{/if}
-      <span class="stamp">{time(message.createdAt)}</span>
     </div>
 
     {#if message.deleted}

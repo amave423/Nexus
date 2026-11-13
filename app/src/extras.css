@@ -22,6 +22,11 @@ body {
   display: block;
 }
 
+/* скрытая панель участников не должна распирать сетку своим паддингом */
+.stage.hide-members .members {
+  display: none;
+}
+
 /* ---------- login ---------- */
 #app > .login {
   grid-row: 1 / -1;
@@ -861,4 +866,20 @@ body {
   box-shadow: 0 0 8px var(--acid);
   flex: 0 0 auto;
   animation: pulse 2s infinite;
+}
+
+/* ---------- voice console while not connected ---------- */
+.voice-seg.idle .wave i {
+  animation-play-state: paused;
+  opacity: 0.35;
+}
+.voice-seg.idle .voice-info .lbl {
+  color: var(--dim);
+}
+.voice-seg.idle .voice-info .nm {
+  color: var(--muted);
+  font-weight: 500;
+}
+.voice-seg.idle {
+  border-color: var(--line);
 }
