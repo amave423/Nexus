@@ -35,6 +35,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   const state = {
     channelId: null,
+    channelName: null,
     joining: false,
     joined: false,
     error: null,
@@ -52,6 +53,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function snapshot() {
     return {
       channelId: state.channelId,
+      channelName: state.channelName,
       joining: state.joining,
       joined: state.joined,
       error: state.error,
@@ -114,8 +116,59 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       el.dataset.voice = String(userId);
       document.body.appendChild(el);
       sinks.set(userId, el);
+      applyOutput(settings());
     }
     return el;
+  }
+
+  function applyOutput(pref = settings() || {}) {
+    for (const el of sinks.values()) {
+      if (!el.setSinkId) continue;
+      const target = pref.outDevId || "";
+      const current = el.sinkId || "";
+      if (current === target) continue;
+      el.setSinkId(target).catch(() => {});
+    }
+  }
+
+  function audioSignature(pref) {
+    return [
+      pref.micDevId || "",
+      pref.echoCancel === false ? 0 : 1,
+      pref.noiseMode || "rnnoise",
+      pref.autoGain ? 1 : 0,
+      Number(pref.micLevel) || 0,
+      pref.quality || "96 kbps",
+    ].join("|");
+  }
+
+  let micSignature = "";
+  let applyTimer = null;
+
+  function applySettings(pref = settings() || {}) {
+    applyOutput(pref);
+    if (!state.joined || leaving) return;
+    if (audioSignature(pref) === micSignature) return;
+    clearTimeout(applyTimer);
+    applyTimer = setTimeout(() => {
+      restartMic().catch(() => {});
+    }, 350);
+  }
+
+  async function restartMic() {
+    if (!state.joined || leaving) return;
+    clearTimeout(applyTimer);
+    const hadMic = !!micProducer || !state.micError;
+    if (!hadMic) return;
+    await stopMic();
+    try {
+      await startMic();
+      state.micError = null;
+    } catch {
+      state.micError = "no_mic";
+      state.muted = true;
+    }
+    publish();
   }
 
   function attachAudio(userId, stream) {
@@ -283,6 +336,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       video: false,
     });
     let track = micStream.getAudioTracks()[0];
+    micSignature = audioSignature(pref);
     state.noise = pref.noiseMode || "rnnoise";
     try {
       micChain = await buildMicTrack(micStream, {
@@ -344,14 +398,15 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     publish();
   }
 
-  async function join(channelId) {
+  async function join(channelId, channelName = "") {
     if (state.channelId === channelId && state.joined) return;
     if (state.channelId) await leave();
     leaving = false;
-    Object.assign(state, { channelId, joining: true, joined: false, error: null });
+    Object.assign(state, { channelId, channelName, joining: true, joined: false, error: null });
     publish();
     try {
       const joined = await request("voice.join", { channelId });
+      state.channelName = joined.channelName || channelName || state.channelName;
       await makeTransports(joined.rtpCapabilities);
       await sendReady;
       await recvReady;
@@ -371,6 +426,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       state.joined = true;
       state.joining = false;
       pushState();
+      const pref = settings() || {};
+      applyOutput(pref);
+      micSignature = audioSignature(pref);
       for (const queued of pendingProducers.splice(0)) {
         consume({
           producerId: queued.producerId,
@@ -415,7 +473,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     device = null;
     state.joined = false;
     state.channelId = null;
+    state.channelName = null;
     state.micError = null;
+    micSignature = "";
     state.cam = false;
     state.stream = false;
     publish();
@@ -548,7 +608,14 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         return;
       }
       case "voice.roster": {
-        rosters.set(event.channelId, event.members || []);
+        const seen = new Set();
+        const unique = [];
+        for (const member of event.members || []) {
+          if (seen.has(member.userId)) continue;
+          seen.add(member.userId);
+          unique.push(member);
+        }
+        rosters.set(event.channelId, unique);
         publish();
         return;
       }
@@ -653,6 +720,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     join,
     leave,
     reset,
+    applySettings,
+    restartMic,
     toggleMic,
     toggleDeafen,
     toggleCamera,

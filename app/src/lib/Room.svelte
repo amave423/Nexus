@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from "svelte";
+  import { prefs } from "./prefs.js";
 
   export let channel;
   export let user;
@@ -102,7 +103,7 @@
       <span class="room-timer">{vs.joining ? "подключаюсь" : clock}</span>
     </div>
     <div class="room-meta">
-      {roomies.length} {plural(roomies.length, "участник", "участника", "участников")} · opus 48 kHz
+      {roomies.length} {plural(roomies.length, "участник", "участника", "участников")} · opus 48 kHz · {$prefs.quality}
     </div>
   </div>
 
@@ -183,7 +184,6 @@
   <div class="room-controls">
     <button class="rbtn" class:off={vs.muted} on:click={() => voice.toggleMic()} title="Микрофон">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html vs.muted ? icons.micOff : icons.mic}</svg>
-      {#if !vs.muted}<i class="lvl" style="--l:{vs.micLevel}"></i>{/if}
     </button>
     <button class="rbtn" class:off={vs.deafened} on:click={() => voice.toggleDeafen()} title="Звук">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html vs.deafened ? icons.headphonesOff : icons.headphones}</svg>

@@ -1,4 +1,7 @@
 import { rcedit } from "rcedit";
+import { readFileSync } from "node:fs";
+
+const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
 await rcedit("out/win-unpacked/Nexus.exe", {
   icon: "out/.icon-ico/icon.ico",
@@ -8,8 +11,8 @@ await rcedit("out/win-unpacked/Nexus.exe", {
     CompanyName: "Nexus",
     LegalCopyright: "Nexus",
   },
-  "file-version": "0.2.0",
-  "product-version": "0.2.0",
+  "file-version": version,
+  "product-version": version,
 });
 
 console.log("icon set");

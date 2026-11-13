@@ -16,3 +16,5 @@ gitlog.txt
 *.db-shm
 *.db-wal
 .env*
+server/tmpdata/
+artifacts/

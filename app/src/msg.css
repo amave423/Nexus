@@ -104,7 +104,8 @@
 .attach.shot {
   display: block;
   padding: 0;
-  max-width: 380px;
+  width: fit-content;
+  max-width: min(420px, 100%);
   text-align: left;
   color: inherit;
   transition: border-color 0.16s;
@@ -116,9 +117,11 @@
 
 .attach.shot img {
   display: block;
-  width: 100%;
-  max-height: 280px;
-  object-fit: cover;
+  width: auto;
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .attach-meta {

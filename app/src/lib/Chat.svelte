@@ -26,6 +26,7 @@
   let permissions = [];
   let online = new Set();
   let statuses = {};
+  let lastSeen = {};
   let showNewServer = false;
   let newName = "";
   let joinCode = "";
@@ -110,7 +111,7 @@
       voiceSig = sig;
       desktop.setVoiceState({
         inChannel: !!vs.channelId,
-        channelName: voiceList.find((c) => c.id === vs.channelId)?.name || "",
+        channelName: vs.channelName || voiceList.find((c) => c.id === vs.channelId)?.name || "",
         muted: vs.muted,
         deafened: vs.deafened,
       });
@@ -139,6 +140,12 @@
     messages = data.messages;
     hasMore = data.messages.length >= 50;
     scrollDown();
+  }
+
+  function growInput() {
+    if (!inputEl) return;
+    inputEl.style.height = "auto";
+    inputEl.style.height = `${Math.min(120, Math.max(38, inputEl.scrollHeight))}px`;
   }
 
   function scrollDown() {
@@ -179,6 +186,7 @@
     emojiOpen = false;
     const data = await api(`/api/channels/${current.id}/messages`, { method: "POST", body });
     if (!messages.some((m) => m.id === data.message.id)) messages = [...messages, data.message];
+    requestAnimationFrame(growInput);
     scrollDown();
   }
 
@@ -353,7 +361,7 @@
     if (!voice) return;
     if (vs.channelId === channel.id && vs.joined) return;
     try {
-      await voice.join(channel.id);
+      await voice.join(channel.id, channel.name);
     } catch {
       /* ошибка показана в комнате */
     }
@@ -434,6 +442,7 @@
     if (event.t === "presence") {
       online = new Set(event.online);
       statuses = event.statuses || {};
+      lastSeen = { ...lastSeen, ...(event.lastSeen || {}) };
       return;
     }
     if (event.t === "typing") {
@@ -486,6 +495,7 @@
     permissions = state.permissions || [];
     online = new Set(state.online);
     statuses = state.statuses || {};
+    lastSeen = state.lastSeen || {};
     current = null;
     messages = [];
   }
@@ -495,7 +505,6 @@
       showServer = true;
       return;
     }
-    if (vs.channelId) voice?.leave();
     const state = await api(`/api/spaces/${target.id}/state`);
     applyState(state);
     const first = channels.find((c) => c.type === "text");
@@ -515,7 +524,6 @@
       showNewServer = false;
       newName = "";
       newError = "";
-      if (vs.channelId) voice?.leave();
       applyState(state);
       const first = channels.find((c) => c.type === "text");
       if (first) await openChannel(first);
@@ -537,7 +545,6 @@
       showNewServer = false;
       joinCode = "";
       newError = "";
-      if (vs.channelId) voice?.leave();
       applyState(state);
       const first = channels.find((c) => c.type === "text");
       if (first) await openChannel(first);
@@ -548,8 +555,26 @@
     }
   }
 
-  const STATUS_LABEL = { online: "в сети", away: "отошёл", dnd: "не беспокоить", offline: "не в сети" };
+  const STATUS_LABEL = { online: "в сети", idle: "отошёл", dnd: "не беспокоить", invisible: "невидимка", offline: "не в сети" };
   const statusOf = (id) => statuses[id] || (online.has(id) ? "online" : "offline");
+  const DOT_COLOR = { online: "#c8ff3d", idle: "#ffb454", dnd: "#ff6b8a", invisible: "#6e6e7c", offline: "#3a3a44" };
+  const OFFLINE_DOT = "#3a3a44";
+  const dotOf = (id) => DOT_COLOR[statusOf(id)] || OFFLINE_DOT;
+
+  function lastSeenText(id) {
+    const ts = lastSeen[id] || members.find((m) => m.id === id)?.lastSeen;
+    if (!ts) return "не в сети";
+    const diff = Date.now() - ts;
+    if (diff < 60_000) return "был(а) только что";
+    if (diff < 3_600_000) return `был(а) ${Math.floor(diff / 60_000)} мин назад`;
+    const date = new Date(ts);
+    const now = new Date();
+    const yesterday = new Date(Date.now() - 86_400_000);
+    if (date.toDateString() === now.toDateString())
+      return `был(а) в ${date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
+    if (date.toDateString() === yesterday.toDateString()) return "был(а) вчера";
+    return `был(а) ${date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}`;
+  }
 
   function hotkeyAction(combo) {
     const keys = prefs.get().keys;
@@ -624,7 +649,10 @@
         const target = channels.find((c) => c.id === channelId);
         if (target) openChannel(target);
       });
-      unsubscribePrefs = prefs.subscribe((p) => desktop.setHotkeys(p.keys));
+      unsubscribePrefs = prefs.subscribe((p) => {
+        desktop.setHotkeys(p.keys);
+        voice?.applySettings(p);
+      });
     }
   });
 
@@ -758,7 +786,7 @@
           <div class="wave" class:still={!vs.channelId}><i></i><i></i><i></i><i></i><i></i></div>
           <div class="voice-info">
             <span class="lbl">{vs.channelId ? "в голосовом" : "не в голосе"}</span>
-            <span class="nm">{vs.channelId ? voiceChannel?.name || "канал" : user.name}</span>
+            <span class="nm">{vs.channelId ? vs.channelName || voiceChannel?.name || "канал" : user.name}</span>
           </div>
         </div>
         <div class="voice-btns">
@@ -777,12 +805,12 @@
             </svg>
           </button>
           {#if vs.channelId}
-            <button class="vbtn" class:off={!vs.cam} title="Камера" aria-label="Камера" on:click={() => voice.toggleCamera().catch(() => {})}>
+            <button class="vbtn" class:on={vs.cam} title="Камера" aria-label="Камера" on:click={() => voice.toggleCamera().catch(() => {})}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 12 6-3.5v7l-6-3.5" />
               </svg>
             </button>
-            <button class="vbtn" class:off={!vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={() => voice.toggleScreen().catch(() => {})}>
+            <button class="vbtn" class:on={vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={() => voice.toggleScreen().catch(() => {})}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                 <rect x="2.5" y="4" width="19" height="13" rx="2.5" /><path d="M9 21h6" /><path d="M12 17v4" />
               </svg>
@@ -934,6 +962,16 @@
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
+        <textarea
+          bind:this={inputEl}
+          bind:value={text}
+          on:keydown={onKey}
+          on:input={growInput}
+          on:paste={onPaste}
+          rows="1"
+          placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
+          disabled={!current}
+        ></textarea>
         <div class="emoji-wrap">
           <button type="button" class="comp-btn" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
@@ -948,15 +986,6 @@
             </div>
           {/if}
         </div>
-        <textarea
-          bind:this={inputEl}
-          bind:value={text}
-          on:keydown={onKey}
-          on:paste={onPaste}
-          rows="1"
-          placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
-          disabled={!current}
-        ></textarea>
         <button class="send-btn" type="submit" aria-label="Отправить" disabled={uploading}>
           {#if uploading}
             <span>…</span>
@@ -981,8 +1010,7 @@
         <h3>в сети — {onlineMembers.length}</h3>
         {#each onlineMembers as member (member.id)}
           <div class="mem">
-            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} />
-            <i class="mem-dot" class:away={statusOf(member.id) === "away"} class:dnd={statusOf(member.id) === "dnd"}></i>
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={dotOf(member.id)} />
             <div class="mem-info">
               <div class="mem-name" style="color:{member.roles[0]?.color || 'inherit'}">{member.name}</div>
               <div class="mem-act" class:live={member.roles.length > 0}>
@@ -999,12 +1027,10 @@
         <h3>не в сети — {offlineMembers.length}</h3>
         {#each offlineMembers as member (member.id)}
           <div class="mem off">
-            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} />
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={OFFLINE_DOT} />
             <div class="mem-info">
               <div class="mem-name">{member.name}</div>
-              {#if member.roles.length}
-                <div class="mem-act">{member.roles.map((r) => r.name).join(" · ")}</div>
-              {/if}
+              <div class="mem-act">{lastSeenText(member.id)}{member.roles.length ? ` · ${member.roles.map((r) => r.name).join(" · ")}` : ""}</div>
             </div>
           </div>
         {/each}

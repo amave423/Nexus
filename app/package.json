@@ -1,6 +1,6 @@
 {
   "name": "nexus-app",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Nexus — закрытый мессенджер для своих",
   "author": "Nexus",
@@ -55,9 +55,16 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
       "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nexus",
+      "artifactName": "Nexus-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {

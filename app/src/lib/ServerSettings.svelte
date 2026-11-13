@@ -12,14 +12,25 @@
 
   const dispatch = createEventDispatcher();
 
+  const ICONS = {
+    overview: '<path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3z"/>',
+    roles:
+      '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.2a3.4 3.4 0 0 1 0 6.6M18 20a6.5 6.5 0 0 0-2-4.7"/>',
+    members:
+      '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.2a3.4 3.4 0 0 1 0 6.6M18 20a6.5 6.5 0 0 0-2-4.7"/>',
+    invites:
+      '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>',
+    danger: '<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 9v5M12 17h.01"/>',
+  };
+
   const TABS = [
     { grp: "сервер" },
-    { id: "overview", label: "Обзор" },
-    { id: "roles", label: "Роли" },
-    { id: "members", label: "Участники" },
-    { id: "invites", label: "Приглашения" },
+    { id: "overview", label: "Обзор", icon: "overview" },
+    { id: "roles", label: "Роли", icon: "roles" },
+    { id: "members", label: "Участники", icon: "members" },
+    { id: "invites", label: "Приглашения", icon: "invites" },
     { grp: "опасное" },
-    { id: "danger", label: "Удаление" },
+    { id: "danger", label: "Удаление", icon: "danger" },
   ];
 
   const PERM_LABEL = {
@@ -198,6 +209,7 @@
           <span class="grp">{item.grp}</span>
         {:else}
           <button class:active={tab === item.id} class:danger={item.id === "danger"} on:click={() => openTab(item.id)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html ICONS[item.icon] || ""}</svg>
             <span>{item.label}</span>
           </button>
         {/if}

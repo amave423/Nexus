@@ -343,3 +343,45 @@ test("голос: мьют с включённым шумодавом дейст
   const back = await page.evaluate(() => window.__nexusVoice.micInfo());
   assert.equal(back.producer, true, "после мьюта снова передаёт");
 });
+
+test("голос: переход на другой сервер не выкидывает из канала", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+  await waitForAudio(pageA, "Артёма");
+
+  await pageA.getByRole("button", { name: "Новый сервер" }).click();
+  await pageA.getByPlaceholder("Название сервера").fill("Вторая");
+  await pageA.getByRole("button", { name: "Создать сервер" }).click();
+  await pageA.getByPlaceholder("Написать в #general").waitFor({ timeout: 10000 });
+
+  assert.equal(await pageA.locator(".voice-seg").getByTitle("Выйти из канала").count(), 1,
+    "консоль голоса осталась: из канала не выкинуло");
+  assert.match(await pageA.locator(".voice-seg .nm").textContent(), /Кухня/, "видно, в каком канале сидишь");
+
+  const before = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
+  await pageA.waitForTimeout(2000);
+  const after = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
+  assert.ok(after > before, `звук продолжает идти: было ${before}, стало ${after}`);
+
+  assert.equal(await pageB.locator(".seat").count(), 2, "на первом сервере собеседник остался в канале");
+
+  await pageA.locator(".coin").first().click();
+  await pageA.getByPlaceholder("Написать в #general").waitFor({ timeout: 10000 });
+  assert.equal(await pageA.locator(".voice-seg").getByTitle("Выйти из канала").count(), 1,
+    "после возврата на первый сервер всё ещё в голосе");
+
+  await contextA.close();
+  await contextB.close();
+});

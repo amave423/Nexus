@@ -26,7 +26,7 @@ const BASE_PERMISSIONS = {
 };
 
 export function buildApp({ db, logger = false, voice: injectedVoice = null, uploadDir = null }) {
-  const app = Fastify({ logger, bodyLimit: 2 * 1024 * 1024 });
+  const app = Fastify({ logger, bodyLimit: 13 * 1024 * 1024 });
   const hub = new Hub();
   const filesDir = uploadDir || join(process.cwd(), "data", "uploads");
   mkdirSync(filesDir, { recursive: true });
@@ -152,7 +152,8 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const membersOf = (spaceId) =>
     db
       .prepare(
-        `SELECT u.id, u.name, u.avatar, u.color, u.about, u.status, m.role, m.joined_at AS joinedAt
+        `SELECT u.id, u.name, u.avatar, u.color, u.about, u.status, u.last_seen AS lastSeen,
+                m.role, m.joined_at AS joinedAt
          FROM space_members m JOIN users u ON u.id = m.user_id
          WHERE m.space_id = ? ORDER BY m.joined_at`
       )
@@ -243,18 +244,20 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const presenceOf = (spaceId) => {
     const rows = db
       .prepare(
-        `SELECT u.id, u.status FROM space_members m JOIN users u ON u.id = m.user_id
+        `SELECT u.id, u.status, u.last_seen AS lastSeen FROM space_members m JOIN users u ON u.id = m.user_id
          WHERE m.space_id = ?`
       )
       .all(spaceId);
     const online = [];
     const statuses = {};
+    const lastSeen = {};
     for (const row of rows) {
       const status = hub.isOnline(row.id) ? statusOf(row) : "offline";
       statuses[row.id] = status;
+      lastSeen[row.id] = row.lastSeen || null;
       if (status !== "offline") online.push(row.id);
     }
-    return { online, statuses };
+    return { online, statuses, lastSeen };
   };
 
   const broadcastPresence = (userId) => {
@@ -675,13 +678,23 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     "image/jpeg": "jpg",
     "image/webp": "webp",
     "image/gif": "gif",
+    "image/avif": "avif",
     "video/mp4": "mp4",
     "video/webm": "webm",
+    "video/quicktime": "mov",
     "audio/mpeg": "mp3",
     "audio/ogg": "ogg",
+    "audio/wav": "wav",
     "application/pdf": "pdf",
     "text/plain": "txt",
     "application/zip": "zip",
+    "application/x-rar-compressed": "rar",
+    "application/x-7z-compressed": "7z",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/octet-stream": "bin",
   };
 
   app.post("/api/upload", async (req, reply) => {
@@ -689,17 +702,19 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const buffer = Buffer.isBuffer(req.body) ? req.body : null;
     if (!buffer || !buffer.length) return reply.code(400).send({ error: "no_file" });
     const mime = String(req.headers["x-file-type"] || "application/octet-stream");
-    const ext = EXT[mime];
-    if (!ext) return reply.code(415).send({ error: "bad_type" });
     if (buffer.length > 12 * 1024 * 1024) return reply.code(413).send({ error: "too_big" });
-    const name = `${randomBytes(12).toString("hex")}.${ext}`;
-    writeFileSync(join(filesDir, name), buffer);
     let original = "файл";
     try {
       original = decodeURIComponent(String(req.headers["x-file-name"] || "файл"));
     } catch {
       /* имя не в utf-8 — оставим запасное */
     }
+    const fromName = original.includes(".")
+      ? original.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8)
+      : "";
+    const ext = EXT[mime] || fromName || "bin";
+    const name = `${randomBytes(12).toString("hex")}.${ext}`;
+    writeFileSync(join(filesDir, name), buffer);
     return {
       url: `/api/files/${name}`,
       name: original.slice(0, 120),
@@ -973,6 +988,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
         const spaceSet = hub.spacesOf(user.id);
         const gone = hub.remove(user.id, socket);
         if (gone) {
+          db.prepare("UPDATE users SET last_seen = ? WHERE id = ?").run(Date.now(), user.id);
           const channelId = await voice.leave(user.id);
           if (channelId) voice.roster(channelId);
         }
@@ -1015,7 +1031,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       case "voice.join": {
         const channelId = Number(msg.channelId);
         const channel = db
-          .prepare("SELECT space_id AS spaceId, type FROM channels WHERE id = ?")
+          .prepare("SELECT space_id AS spaceId, type, name FROM channels WHERE id = ?")
           .get(channelId);
         if (!channel || !canSeeChannel(user.id, channelId)) {
           reply({ error: "forbidden" });
@@ -1025,7 +1041,10 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
           reply({ error: "not_voice" });
           return;
         }
-        await call(() => voice.join(user.id, channelId));
+        await call(async () => ({
+          ...(await voice.join(user.id, channelId)),
+          channelName: channel.name,
+        }));
         return;
       }
       case "voice.leave": {

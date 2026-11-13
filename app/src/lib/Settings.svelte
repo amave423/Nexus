@@ -12,15 +12,30 @@
 
   const dispatch = createEventDispatcher();
 
+  const ICONS = {
+    profile:
+      '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.2a3.4 3.4 0 0 1 0 6.6M18 20a6.5 6.5 0 0 0-2-4.7"/>',
+    voice:
+      '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
+    notify:
+      '<path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 0 0 3 0"/>',
+    look:
+      '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9.5" r="1.2"/><circle cx="15" cy="9.5" r="1.2"/><circle cx="9.5" cy="15" r="1.2"/>',
+    keys:
+      '<rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
+    update:
+      '<path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/>',
+  };
+
   const TABS = [
     { grp: "аккаунт" },
-    { id: "profile", label: "Профиль" },
-    { id: "voice", label: "Голос и видео" },
+    { id: "profile", label: "Профиль", icon: "profile" },
+    { id: "voice", label: "Голос и видео", icon: "voice" },
     { grp: "приложение" },
-    { id: "notify", label: "Уведомления" },
-    { id: "look", label: "Внешний вид" },
-    { id: "keys", label: "Горячие клавиши" },
-    { id: "update", label: "Обновления" },
+    { id: "notify", label: "Уведомления", icon: "notify" },
+    { id: "look", label: "Внешний вид", icon: "look" },
+    { id: "keys", label: "Горячие клавиши", icon: "keys" },
+    { id: "update", label: "Обновления", icon: "update" },
   ];
 
   const STATUS_LABEL = {
@@ -305,6 +320,7 @@
           <span class="grp">{item.grp}</span>
         {:else}
           <button class:active={tab === item.id} on:click={() => (tab = item.id)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html ICONS[item.icon] || ""}</svg>
             <span>{item.label}</span>
           </button>
         {/if}
@@ -327,7 +343,7 @@
             </label>
             <div class="who">
               <b>{user.name}</b>
-              <span>@{user.name.toLowerCase().replace(/\s+/g, "")} · {user.status || "online"}</span>
+              <span>@{user.name.toLowerCase().replace(/\s+/g, "")} · {STATUS_LABEL[user.status] || "в сети"}</span>
             </div>
             {#if user.avatar}
               <button class="ghost-btn" style="margin-left:auto" on:click={resetAvatar}>Сбросить</button>
@@ -389,6 +405,7 @@
             <input
               type="range"
               class="set-range"
+              style="--fill:{P.micLevel}%"
               min="0"
               max="100"
               value={P.micLevel}
@@ -464,6 +481,7 @@
             <input
               type="range"
               class="set-range"
+              style="--fill:{P.volume}%"
               min="0"
               max="100"
               value={P.volume}

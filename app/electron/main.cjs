@@ -44,6 +44,7 @@ function setupUpdates() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoRunAppAfterInstall = true;
   autoUpdater.on("checking-for-update", () => pushUpdate({ status: "checking", error: null }));
   autoUpdater.on("update-available", (info) => {
     pushUpdate({ status: "downloading", version: info.version, percent: 0 });

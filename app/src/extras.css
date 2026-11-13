@@ -810,27 +810,6 @@ body {
   background: #000;
 }
 
-.lvl {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 6px;
-  height: 2px;
-  border-radius: 2px;
-  background: rgba(0, 0, 0, 0.3);
-  overflow: hidden;
-}
-
-.lvl::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  transform-origin: left;
-  transform: scaleX(var(--l, 0));
-  background: var(--acid);
-  transition: transform 0.08s linear;
-}
-
 .rbtn {
   position: relative;
 }
@@ -882,4 +861,14 @@ body {
 }
 .voice-seg.idle {
   border-color: var(--line);
+}
+
+
+/* ползунок заполняется до своего значения, а не на 62% всегда */
+.set-range {
+  background: linear-gradient(
+    90deg,
+    var(--acid) 0 var(--fill, 62%),
+    rgba(255, 255, 255, 0.12) var(--fill, 62%) 100%
+  );
 }

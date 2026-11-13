@@ -25,28 +25,6 @@
   position: relative;
 }
 
-.mem-dot {
-  position: absolute;
-  left: 26px;
-  bottom: 5px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--acid);
-  box-shadow: 0 0 8px rgba(var(--acid-rgb), 0.7);
-  border: 2px solid var(--bg);
-}
-
-.mem-dot.away {
-  background: var(--amber);
-  box-shadow: none;
-}
-
-.mem-dot.dnd {
-  background: var(--rose);
-  box-shadow: none;
-}
-
 .stat .dot-live.off {
   background: var(--dim);
   box-shadow: none;
@@ -63,9 +41,10 @@
 .composer textarea {
   flex: 1;
   min-width: 0;
-  height: 38px;
+  height: auto;
+  min-height: 38px;
   max-height: 120px;
-  padding: 0 4px;
+  padding: 9px 4px;
   border: 0;
   outline: none;
   background: none;
@@ -74,6 +53,7 @@
   font-size: 14px;
   line-height: 20px;
   resize: none;
+  overflow-y: auto;
 }
 
 .composer textarea::placeholder {

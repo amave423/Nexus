@@ -282,3 +282,92 @@ test("голос: вход в канал рассылает состав", async
   wsB.terminate();
   await app.close();
 });
+
+test("присутствие: после ухода участника видно, когда он был в сети", async () => {
+  const { app } = makeApp();
+  const invite = app.ensureInvite();
+  const a = await register(app, invite, "Артём");
+  const b = await register(app, invite, "Мира");
+
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const port = app.server.address().port;
+
+  const boot = await app.inject({
+    method: "GET",
+    url: "/api/bootstrap",
+    headers: { authorization: `Bearer ${b.body.token}` },
+  });
+  const aId = boot.json().members.find((m) => m.name === "Артём").id;
+  const bId = boot.json().members.find((m) => m.name === "Мира").id;
+
+  const wsB = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${b.body.token}`);
+  const events = [];
+  await new Promise((resolve, reject) => {
+    wsB.on("message", (raw) => {
+      const msg = JSON.parse(raw.toString());
+      events.push(msg);
+      if (msg.t === "ready") resolve();
+    });
+    wsB.on("error", reject);
+  });
+
+  const wsA = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${a.body.token}`);
+  await new Promise((resolve) => wsA.on("open", resolve));
+  await new Promise((r) => setTimeout(r, 200));
+  wsA.terminate();
+  await new Promise((r) => setTimeout(r, 400));
+
+  const presence = [...events].reverse().find((e) => e.t === "presence" && e.statuses[aId] === "offline");
+  assert.ok(presence, "пришло событие присутствия");
+  assert.equal(typeof presence.lastSeen[aId], "number");
+  assert.ok(Date.now() - presence.lastSeen[aId] < 60_000);
+  assert.equal(presence.statuses[bId], "online");
+
+  const state = await app.inject({
+    method: "GET",
+    url: `/api/spaces/${boot.json().space.id}/state`,
+    headers: { authorization: `Bearer ${b.body.token}` },
+  });
+  const member = state.json().members.find((m) => m.id === aId);
+  assert.equal(typeof member.lastSeen, "number");
+
+  wsB.terminate();
+  await app.close();
+});
+
+test("файлы: тяжёлый архив и имя с неподдерживаемым типом загружаются", async () => {
+  const { app } = makeApp();
+  const invite = app.ensureInvite();
+  const me = await register(app, invite, "Артём");
+
+  const big = Buffer.alloc(3 * 1024 * 1024, 7);
+  const archive = await app.inject({
+    method: "POST",
+    url: "/api/upload",
+    headers: {
+      authorization: `Bearer ${me.body.token}`,
+      "content-type": "application/octet-stream",
+      "x-file-type": "application/x-rar-compressed",
+      "x-file-name": encodeURIComponent("архив.rar"),
+    },
+    payload: big,
+  });
+  assert.equal(archive.statusCode, 200);
+  assert.match(archive.json().url, /\.rar$/);
+
+  const odd = await app.inject({
+    method: "POST",
+    url: "/api/upload",
+    headers: {
+      authorization: `Bearer ${me.body.token}`,
+      "content-type": "application/octet-stream",
+      "x-file-type": "application/vnd.ms-access",
+      "x-file-name": encodeURIComponent("база.mdb"),
+    },
+    payload: Buffer.from("mdb"),
+  });
+  assert.equal(odd.statusCode, 200);
+  assert.match(odd.json().url, /\.mdb$/);
+
+  await app.close();
+});

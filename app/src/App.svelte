@@ -7,9 +7,12 @@
   let user = null;
   let ready = false;
   let spot = null;
+  let spotFrame = 0;
+  let spotX = 0;
+  let spotY = 0;
 
   onMount(async () => {
-    window.addEventListener("mousemove", follow);
+    window.addEventListener("mousemove", follow, { passive: true });
     if (getToken()) {
       try {
         const data = await api("/api/me");
@@ -23,7 +26,13 @@
 
   function follow(event) {
     if (!spot) return;
-    spot.style.transform = `translate3d(${event.clientX}px, ${event.clientY}px, 0)`;
+    spotX = event.clientX;
+    spotY = event.clientY;
+    if (spotFrame) return;
+    spotFrame = requestAnimationFrame(() => {
+      spotFrame = 0;
+      if (spot) spot.style.transform = `translate3d(${spotX}px, ${spotY}px, 0)`;
+    });
   }
 
   function logout() {
