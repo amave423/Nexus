@@ -158,6 +158,8 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: "#08080a",
     autoHideMenuBar: true,
+    frame: false,
+    titleBarStyle: "hidden",
     title: "Nexus",
     icon: iconPath(),
     webPreferences: {
@@ -184,6 +186,9 @@ function createWindow() {
     win.flashFrame(false);
     refreshTray();
   });
+
+  win.on("maximize", () => send("win:maximized", true));
+  win.on("unmaximize", () => send("win:maximized", false));
 
   if (DEV_URL) win.loadURL(DEV_URL);
   else win.loadURL("app://nexus/index.html");
@@ -334,6 +339,14 @@ function registerHotkeys(keys) {
     }
   }
 }
+
+ipcMain.on("win:minimize", () => win?.minimize());
+ipcMain.on("win:maximize", () => {
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.on("win:close", () => win?.close());
 
 ipcMain.on("desktop:hotkeys", (_event, keys) => registerHotkeys(keys));
 ipcMain.on("desktop:voice", (_event, state) => {

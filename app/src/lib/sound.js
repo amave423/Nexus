@@ -20,6 +20,45 @@ function blip(ac, { f, t0 = 0, d = 0.2, type = "sine", g = 0.2, to = null }) {
   osc.stop(ac.currentTime + t0 + d + 0.02);
 }
 
+export function cue(kind, volume = 60) {
+  const v = Math.max(0, Math.min(1, volume / 100));
+  if (v === 0) return;
+  const ac = audio();
+  const g = 0.11 * v;
+  switch (kind) {
+    case "join":
+      blip(ac, { f: 640, d: 0.11, type: "sine", g });
+      blip(ac, { f: 960, t0: 0.09, d: 0.18, type: "sine", g: g * 0.8 });
+      break;
+    case "leave":
+      blip(ac, { f: 820, d: 0.1, type: "sine", g });
+      blip(ac, { f: 520, t0: 0.09, d: 0.2, type: "sine", g: g * 0.8 });
+      break;
+    case "cam":
+      blip(ac, { f: 1180, d: 0.08, type: "triangle", g: g * 0.8 });
+      blip(ac, { f: 1580, t0: 0.07, d: 0.12, type: "triangle", g: g * 0.55 });
+      break;
+    case "screen":
+      blip(ac, { f: 700, d: 0.09, type: "triangle", g: g * 0.8 });
+      blip(ac, { f: 1050, t0: 0.08, d: 0.14, type: "triangle", g: g * 0.55 });
+      break;
+    case "mute":
+      blip(ac, { f: 430, to: 250, d: 0.14, type: "sine", g });
+      break;
+    case "unmute":
+      blip(ac, { f: 300, to: 520, d: 0.14, type: "sine", g });
+      break;
+    case "deafen":
+      blip(ac, { f: 370, to: 210, d: 0.18, type: "sine", g });
+      break;
+    case "undeafen":
+      blip(ac, { f: 250, to: 480, d: 0.18, type: "sine", g });
+      break;
+    default:
+      return;
+  }
+}
+
 export function playSound(name = "Мягкий", volume = 60) {
   const v = Math.max(0, Math.min(1, volume / 100));
   if (v === 0) return;

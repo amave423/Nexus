@@ -103,8 +103,13 @@ test("клиент: пинг до сервера показывается в ш�
   await register(page, { name: "Артём" });
   await page.locator(".chan.active", { hasText: "general" }).waitFor();
 
-  const pill = page.locator(".stat", { hasText: "мс" });
+  const pill = page.locator(".netstat", { hasText: "мс" });
   await pill.waitFor({ timeout: 15000 });
+  await page.waitForFunction(
+    () => /\d/.test(document.querySelector(".netstat b")?.textContent || ""),
+    null,
+    { timeout: 15000 }
+  );
   const text = await pill.textContent();
   const value = Number(text.replace(/[^\d]/g, ""));
   assert.ok(value > 0 && value < 5000, `пинг измерен: ${text}`);

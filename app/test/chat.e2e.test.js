@@ -80,7 +80,15 @@ test("чат: ответ, реакция, правка и удаление ви�
   const edited = pageB.locator(".msg", { hasText: "я пойду, если позовёте" }).first();
   await edited.hover();
   await edited.getByTitle("Удалить").click();
-  await pageA.getByText("сообщение удалено").waitFor({ timeout: 10000 });
+  await pageA.getByText("сообщение удалено").waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+  await pageA
+    .locator(".msg", { hasText: "я пойду, если позовёте" })
+    .waitFor({ state: "detached", timeout: 10000 });
+  assert.equal(
+    await pageA.getByText("сообщение удалено").count(),
+    0,
+    "пометки об удалении нет"
+  );
 });
 
 test("чат: поиск находит сообщение и переходит к нему", async (t) => {
@@ -145,7 +153,7 @@ test("голос: шумодав RNNoise включается в проверк�
   await page.getByRole("button", { name: "Настройки" }).click();
   await page.getByRole("button", { name: "Голос и видео" }).click();
   await page.getByRole("button", { name: "Проверить" }).click();
-  await page.getByText("шумодав RNNoise включён — говори").waitFor({ timeout: 20000 });
+  await page.getByText("говори — слышишь себя так же, как слышат в комнате").waitFor({ timeout: 20000 });
   assert.equal(
     await page.getByText("шумодав не загрузился — работает браузерный").count(),
     0,

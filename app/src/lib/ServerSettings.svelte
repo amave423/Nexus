@@ -209,7 +209,7 @@
           <span class="grp">{item.grp}</span>
         {:else}
           <button class:active={tab === item.id} class:danger={item.id === "danger"} on:click={() => openTab(item.id)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html ICONS[item.icon] || ""}</svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html ICONS[item.icon] || ""}</svg>
             <span>{item.label}</span>
           </button>
         {/if}

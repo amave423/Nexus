@@ -132,8 +132,7 @@ test("чат: удалить может автор, чужой — нет; те�
     headers: auth(guest.token),
   });
   const message = list.json().messages.find((m) => m.id === id);
-  assert.equal(message.deleted, true);
-  assert.equal(message.text, "");
+  assert.equal(message, undefined, "удалённое сообщение исчезает из истории");
   await app.close();
 });
 

@@ -25,7 +25,7 @@
 <div class="dd" class:open class:wide>
   <button class="dd-btn" type="button" on:click|stopPropagation={() => (open = !open)}>
     <span>{value || "—"}</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="m6 9 6 6 6-6" />
     </svg>
   </button>
@@ -39,7 +39,7 @@
       >
         <span>{option}</span>
         {#if option === value}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <path d="m5 13 4 4L19 7" />
           </svg>
         {/if}

@@ -62,10 +62,8 @@
   let bars = new Array(28).fill(0);
   let micState = "микрофон не запущен";
   let micError = false;
-  let recorder = null;
-  let chunks = [];
-  let recordedUrl = null;
-  let recording = false;
+  let monitorEl = null;
+  let monitoring = false;
 
   let capturing = null;
   let appInfo = { version: "—", packaged: false };
@@ -208,7 +206,7 @@
       micState = noiseFailed
         ? "шумодав не загрузился — работает браузерный"
         : P.noiseMode === "rnnoise"
-          ? "шумодав RNNoise включён — говори"
+          ? "говори — слышишь себя так же, как слышат в комнате"
           : "говори — полоски должны шевелиться";
       const data = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
@@ -228,7 +226,46 @@
     }
   }
 
+  function stopMonitor() {
+    if (monitorEl) {
+      monitorEl.srcObject = null;
+      monitorEl.remove();
+      monitorEl = null;
+    }
+    monitoring = false;
+  }
+
+  function startMonitor() {
+    const track = micChain?.track || micStream?.getAudioTracks()[0];
+    if (!track) {
+      monitoring = false;
+      return false;
+    }
+    stopMonitor();
+    monitorEl = document.createElement("audio");
+    monitorEl.autoplay = true;
+    monitorEl.dataset.monitor = "1";
+    monitorEl.srcObject = new MediaStream([track]);
+    document.body.appendChild(monitorEl);
+    if (monitorEl.setSinkId) monitorEl.setSinkId(P.outDevId || "").catch(() => {});
+    monitorEl.play().catch(() => {});
+    monitoring = true;
+    return true;
+  }
+
+  function toggleMonitor() {
+    if (monitoring) stopMonitor();
+    else if (micStream) startMonitor();
+    else testMic();
+  }
+
+  async function testMic() {
+    await startMeter();
+    if (micStream) startMonitor();
+  }
+
   function stopMeter() {
+    stopMonitor();
     cancelAnimationFrame(raf);
     raf = 0;
     micStream?.getTracks().forEach((t) => t.stop());
@@ -237,27 +274,6 @@
     micStream = null;
     analyser = null;
     bars = new Array(28).fill(0.06);
-  }
-
-  async function recordMic() {
-    if (!micStream) await startMeter();
-    if (!micStream) return;
-    chunks = [];
-    recordedUrl = null;
-    const recorded = micChain ? new MediaStream([micChain.track]) : micStream;
-    recorder = new MediaRecorder(recorded);
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    recorder.onstop = () => {
-      recordedUrl = URL.createObjectURL(new Blob(chunks, { type: "audio/webm" }));
-      recording = false;
-    };
-    recorder.start();
-    recording = true;
-    setTimeout(() => recorder?.state === "recording" && recorder.stop(), 3000);
-  }
-
-  function playRecorded() {
-    if (recordedUrl) new Audio(recordedUrl).play();
   }
 
   function testNotification() {
@@ -306,7 +322,6 @@
     offUpdate?.();
     stopMeter();
     navigator.mediaDevices?.removeEventListener?.("devicechange", listDevices);
-    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
   });
 </script>
 
@@ -320,7 +335,7 @@
           <span class="grp">{item.grp}</span>
         {:else}
           <button class:active={tab === item.id} on:click={() => (tab = item.id)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html ICONS[item.icon] || ""}</svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html ICONS[item.icon] || ""}</svg>
             <span>{item.label}</span>
           </button>
         {/if}
@@ -416,7 +431,7 @@
           <div class="vtest" class:live={!!micStream}>
             <div class="vtest-head">
               <b>Проверка микрофона</b>
-              <span>Послушай, как тебя слышно, до того как зайти в комнату</span>
+              <span>{monitoring ? "наушники повторяют твой голос вживую" : "послушай себя в наушниках до входа в комнату"}</span>
             </div>
             <div class="vtest-meter">
               {#each bars as level, i (i)}
@@ -425,11 +440,10 @@
             </div>
             <div class="vtest-status" class:err={micError}>{micState}</div>
             <div class="vtest-actions">
-              <button class="set-copy" on:click={startMeter}>Проверить</button>
-              <button class="ghost-btn" on:click={recordMic} disabled={recording}>
-                {recording ? "Записываю…" : "Записать 3 сек"}
+              <button class="set-copy" on:click={testMic}>{micStream ? "Перезапустить" : "Проверить"}</button>
+              <button class="ghost-btn" class:on={monitoring} on:click={toggleMonitor} disabled={!micStream && !monitoring}>
+                {monitoring ? "Остановить" : "Слушать себя"}
               </button>
-              <button class="ghost-btn" on:click={playRecorded} disabled={!recordedUrl}>Прослушать</button>
             </div>
           </div>
 
@@ -463,6 +477,10 @@
           <div class="set-row">
             <div class="set-row-t"><b>Звук уведомлений</b><span>Короткий сигнал на новое сообщение</span></div>
             <button class="switch" class:on={P.notifSound} role="switch" aria-checked={P.notifSound} on:click={() => set({ notifSound: !P.notifSound })}><i></i></button>
+          </div>
+          <div class="set-row">
+            <div class="set-row-t"><b>Звуки в голосовом</b><span>Вход и выход из канала, камера, демонстрация, микрофон</span></div>
+            <button class="switch" class:on={P.voiceSounds} role="switch" aria-checked={P.voiceSounds} on:click={() => set({ voiceSounds: !P.voiceSounds })}><i></i></button>
           </div>
           <div class="set-row">
             <div class="set-row-t"><b>Упоминания</b><span>Всегда подсвечивать @упоминания</span></div>

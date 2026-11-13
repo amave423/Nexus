@@ -585,7 +585,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const own = row.user_id === req.user.id;
     if (!own && !can(spaceId, req.user.id, "manage_messages"))
       return reply.code(403).send({ error: "forbidden" });
-    db.prepare("UPDATE messages SET deleted = 1, text = '' WHERE id = ?").run(row.id);
+    db.prepare("DELETE FROM messages WHERE id = ?").run(row.id);
     db.prepare("DELETE FROM attachments WHERE message_id = ?").run(row.id);
     db.prepare("DELETE FROM reactions WHERE message_id = ?").run(row.id);
     db.prepare("DELETE FROM pins WHERE message_id = ?").run(row.id);

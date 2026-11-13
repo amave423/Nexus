@@ -32,6 +32,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const rosters = new Map();
   const levels = new Map();
   const sinks = new Map();
+  const volumes = new Map();
+  const silent = new Set();
 
   const state = {
     channelId: null,
@@ -68,6 +70,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       remote: new Map([...remote].map(([id, value]) => [id, { ...value }])),
       local: { ...local },
       levels: new Map(levels),
+      volumes: new Map(volumes),
+      silent: new Set(silent),
     };
   }
 
@@ -104,6 +108,27 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       cam: state.cam,
       stream: state.stream,
     });
+    publish();
+  }
+
+  function applyUserAudio(userId) {
+    const el = sinks.get(userId);
+    if (!el) return;
+    el.volume = volumes.has(userId) ? volumes.get(userId) : 1;
+    el.muted = state.deafened || silent.has(userId);
+  }
+
+  function setUserVolume(userId, value) {
+    const level = Math.max(0, Math.min(1, Number(value)));
+    volumes.set(userId, level);
+    applyUserAudio(userId);
+    publish();
+  }
+
+  function setUserMuted(userId, muted) {
+    if (muted) silent.add(userId);
+    else silent.delete(userId);
+    applyUserAudio(userId);
     publish();
   }
 
@@ -175,7 +200,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     const el = sinkFor(userId);
     if (el.srcObject === stream) return;
     el.srcObject = stream;
-    el.muted = state.deafened;
+    applyUserAudio(userId);
     el.play().catch(() => {});
   }
 
@@ -376,6 +401,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     try {
       await startMic();
       state.micError = null;
+      if (state.deafened) await setDeafened(false);
       await setMuted(false);
       return true;
     } catch {
@@ -509,18 +535,29 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     pushState();
   }
 
-  function toggleMic() {
-    return setMuted(!state.muted);
+  async function setDeafened(deafened) {
+    state.deafened = deafened;
+    for (const userId of sinks.keys()) applyUserAudio(userId);
+    pushState();
+  }
+
+  async function toggleMic() {
+    if (state.muted && state.deafened) {
+      await setDeafened(false);
+      await setMuted(false);
+      return;
+    }
+    await setMuted(!state.muted);
+    if (!state.muted && state.deafened) await setDeafened(false);
   }
 
   async function toggleDeafen() {
-    state.deafened = !state.deafened;
-    for (const el of sinks.values()) el.muted = state.deafened;
-    if (state.deafened && !state.muted) {
-      await setMuted(true);
+    if (state.deafened) {
+      await setDeafened(false);
       return;
     }
-    pushState();
+    await setDeafened(true);
+    if (!state.muted) await setMuted(true);
   }
 
   async function startCamera() {
@@ -727,6 +764,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     toggleCamera,
     toggleScreen,
     setMuted,
+    setDeafened,
+    setUserVolume,
+    setUserMuted,
     requestMic,
     micInfo,
     stats,

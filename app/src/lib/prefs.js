@@ -31,6 +31,7 @@ export const DEFAULTS = {
   notifDesktop: false,
   notifMention: true,
   dnd: false,
+  voiceSounds: true,
   micDev: "По умолчанию",
   outDev: "По умолчанию",
   micDevId: "",

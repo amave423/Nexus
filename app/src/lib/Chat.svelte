@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { api, connect, setToken, upload, fileUrl } from "./api.js";
   import { prefs } from "./prefs.js";
-  import { playSound } from "./sound.js";
+  import { cue, playSound } from "./sound.js";
   import { toast } from "./toasts.js";
   import Logo from "./Logo.svelte";
   import Avatar from "./Avatar.svelte";
@@ -11,6 +11,7 @@
   import Settings from "./Settings.svelte";
   import ServerSettings from "./ServerSettings.svelte";
   import Toasts from "./Toasts.svelte";
+  import WinControls from "./WinControls.svelte";
   import { createVoiceClient } from "./voice.js";
   import { rnnoiseReady, rnnoiseError } from "./noise.js";
 
@@ -68,6 +69,8 @@
   let pins = [];
   let dragOver = false;
   let emojiOpen = false;
+  let lastVoiceChannel = null;
+  let lastRoster = null;
 
   const QUICK_EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀"];
 
@@ -121,6 +124,78 @@
 
   $: onlineMembers = members.filter((m) => online.has(m.id));
   $: offlineMembers = members.filter((m) => !online.has(m.id));
+  $: pingTone =
+    status !== "online" || ping === null
+      ? "none"
+      : ping <= 60
+        ? "low"
+        : ping <= 120
+          ? "mid"
+          : ping <= 220
+            ? "high"
+            : "bad";
+  $: roleGroups = roles
+    .map((role) => ({ role, list: onlineMembers.filter((m) => m.roles[0]?.id === role.id) }))
+    .filter((group) => group.list.length);
+  $: looseOnline = onlineMembers.filter((m) => !m.roles.length);
+
+  function cueSound(kind, pref = prefs.get()) {
+    if (!pref.voiceSounds) return;
+    cue(kind, pref.volume);
+  }
+
+  function watchVoice(next) {
+    if (!next.channelId) {
+      lastVoiceChannel = null;
+      lastRoster = null;
+      return;
+    }
+    if (next.channelId !== lastVoiceChannel) {
+      lastVoiceChannel = next.channelId;
+      lastRoster = null;
+    }
+    if (!next.joined) {
+      lastRoster = null;
+      return;
+    }
+    const roster = next.rosters.get(next.channelId) || [];
+    const map = new Map(roster.map((m) => [m.userId, m]));
+    const pref = prefs.get();
+    if (!lastRoster) {
+      lastRoster = map;
+      cueSound("join", pref);
+      return;
+    }
+    for (const [id, member] of map) {
+      const was = lastRoster.get(id);
+      if (!was) {
+        cueSound("join", pref);
+        continue;
+      }
+      if (!!was.cam !== !!member.cam) cueSound("cam", pref);
+      if (!!was.stream !== !!member.stream) cueSound("screen", pref);
+    }
+    for (const id of lastRoster.keys()) if (!map.has(id)) cueSound("leave", pref);
+    lastRoster = map;
+  }
+
+  function toggleMic() {
+    cueSound(vs.muted ? "unmute" : "mute");
+    voice?.toggleMic();
+  }
+
+  function toggleDeafen() {
+    cueSound(vs.deafened ? "undeafen" : "deafen");
+    voice?.toggleDeafen();
+  }
+
+  function toggleCam() {
+    voice?.toggleCamera().catch(() => {});
+  }
+
+  function toggleScreen() {
+    voice?.toggleScreen().catch(() => {});
+  }
 
   const roleOf = (userId) => {
     const member = members.find((m) => m.id === userId);
@@ -149,9 +224,19 @@
   }
 
   function scrollDown() {
-    requestAnimationFrame(() => {
+    const go = () => {
       if (listEl) listEl.scrollTop = listEl.scrollHeight;
-    });
+    };
+    const settle = () => {
+      go();
+      if (!listEl) return;
+      for (const img of listEl.querySelectorAll("img")) {
+        if (!img.complete) img.addEventListener("load", go, { once: true });
+      }
+    };
+    requestAnimationFrame(settle);
+    setTimeout(go, 120);
+    setTimeout(go, 380);
   }
 
   async function loadOlder() {
@@ -268,6 +353,7 @@
   async function deleteMessage(message) {
     try {
       await api(`/api/messages/${message.id}`, { method: "DELETE" });
+      messages = messages.filter((m) => m.id !== message.id);
     } catch {
       toast({ name: "Не вышло", text: "Сообщение не удалилось", color: "#ff6b8a" });
     }
@@ -421,9 +507,8 @@
       return;
     }
     if (event.t === "message.delete") {
-      messages = messages.map((m) =>
-        m.id === event.messageId ? { ...m, deleted: true, text: "", attachments: [], reactions: [] } : m
-      );
+      messages = messages.filter((m) => m.id !== event.messageId);
+      pins = pins.filter((m) => m.id !== event.messageId);
       return;
     }
     if (event.t === "message.reactions") {
@@ -478,13 +563,33 @@
       return;
     }
     if (event.t === "space.deleted") {
-      spaces = spaces.filter((s) => s.id !== event.spaceId);
-      if (space?.id === event.spaceId) {
-        const next = spaces[0];
-        if (next) switchSpace(next);
-        else logout();
-      }
+      dropSpace(event.spaceId);
     }
+  }
+
+  function dropSpace(spaceId) {
+    spaces = spaces.filter((s) => s.id !== spaceId);
+    if (space?.id !== spaceId) return;
+    showServer = false;
+    const inGoneChannel =
+      vs.channelId && !spaces.some((s) => (s.channels || []).some((c) => c.id === vs.channelId));
+    if (inGoneChannel) voice?.leave();
+    const next = spaces[0];
+    if (next) switchSpace(next).catch(() => blankState());
+    else blankState();
+  }
+
+  function blankState() {
+    space = null;
+    channels = [];
+    members = [];
+    roles = [];
+    permissions = [];
+    online = new Set();
+    statuses = {};
+    lastSeen = {};
+    current = null;
+    messages = [];
   }
 
   function applyState(state) {
@@ -585,10 +690,10 @@
   }
 
   function runAction(action) {
-    if (action === "mic") voice?.toggleMic();
-    if (action === "deaf") voice?.toggleDeafen();
-    if (action === "cam") voice?.toggleCamera().catch(() => {});
-    if (action === "screen") voice?.toggleScreen().catch(() => {});
+    if (action === "mic") toggleMic();
+    if (action === "deaf") toggleDeafen();
+    if (action === "cam") toggleCam();
+    if (action === "screen") toggleScreen();
     if (action === "leave") voice?.leave();
     if (action === "search") {
       searchOpen = true;
@@ -634,7 +739,10 @@
       send: (payload) => socket.send(payload),
       settings: () => prefs.get(),
     });
-    unsubscribe = voice.store.subscribe((value) => (vs = value));
+    unsubscribe = voice.store.subscribe((value) => {
+      vs = value;
+      watchVoice(value);
+    });
     window.__nexusVoice = voice;
     window.__nexusNoise = { ready: rnnoiseReady, error: rnnoiseError };
     window.addEventListener("keydown", onHotkey);
@@ -686,36 +794,38 @@
 
 <header class="topbar">
   <button class="icon-btn menu-btn" aria-label="Каналы" on:click={() => (sideOpen = !sideOpen)}>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
       <path d="M4 7h16M4 12h16M4 17h16" />
     </svg>
   </button>
+
+  <span class="netstat {pingTone}" title={status === "online" ? "Задержка до сервера" : "Нет связи с сервером"}>
+    <i class="net-dot"></i>
+    <b>{ping === null ? "—" : ping}</b>
+    <span class="net-unit">мс</span>
+  </span>
 
   <a class="brand" href="#" aria-label="Nexus" on:click|preventDefault={() => {}}>
     <Logo />
   </a>
 
   <div class="top-actions">
-    <div class="stat" title="Задержка до сервера">
-      <span class="dot-live" class:off={status !== "online"}></span>
-      <span>{ping === null ? "—" : `${ping} мс`}</span>
-    </div>
     {#if !inRoom}
       <button class="icon-btn" class:on={searchOpen} aria-label="Поиск" title="Поиск (Ctrl+K)" on:click={() => { searchOpen = !searchOpen; pinsOpen = false; }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="6.5" />
           <path d="M16 16l4.5 4.5" />
         </svg>
       </button>
       <button class="icon-btn" class:on={pinsOpen} aria-label="Закреплённые" title="Закреплённые" on:click={openPins}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
           <path d="M12 13v7" />
         </svg>
       </button>
     {/if}
     <button class="icon-btn" class:on={!membersHidden} aria-label="Участники" title="Участники" on:click={() => { membersTouched = true; membersHidden = !membersHidden; }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="9" cy="8" r="3.2" />
         <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
         <path d="M16 5.5a3 3 0 0 1 0 5.6" />
@@ -726,6 +836,8 @@
       <Avatar name={user.name} color={user.color} avatar={user.avatar} size={28} radius={9} />
     </button>
   </div>
+
+  <WinControls />
 </header>
 
 <main class="stage" class:hide-members={membersHidden}>
@@ -738,7 +850,7 @@
           class:active={current?.id === channel.id}
           on:click={() => openChannel(channel)}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>
           <span class="nm">{channel.name}</span>
           {#if unread.has(channel.id)}<i class="unread"></i>{/if}
         </button>
@@ -752,7 +864,7 @@
           class:live={vs.channelId === channel.id}
           on:click={() => openVoice(channel)}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
           <span class="nm">{channel.name}</span>
           {#if (vs.rosters.get(channel.id) || []).length}
             <i class="live-dot"></i>
@@ -781,7 +893,8 @@
       >+</button>
     </div>
 
-    <div class="voice-seg" class:muted={vs.muted} class:idle={!vs.channelId}>
+    {#if vs.channelId}
+    <div class="voice-seg" class:muted={vs.muted}>
         <div class="voice-top">
           <div class="wave" class:still={!vs.channelId}><i></i><i></i><i></i><i></i><i></i></div>
           <div class="voice-info">
@@ -790,8 +903,8 @@
           </div>
         </div>
         <div class="voice-btns">
-          <button class="vbtn" class:off={vs.muted} title="Микрофон" aria-label="Микрофон" on:click={() => voice.toggleMic()}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <button class="vbtn" class:off={vs.muted} title="Микрофон" aria-label="Микрофон" on:click={toggleMic}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               {#if vs.muted}
                 <path d="M9 9v3a3 3 0 0 0 5.1 2.1" /><path d="M15 10.5V6a3 3 0 0 0-5.6-1.5" /><path d="M5 11a7 7 0 0 0 10.6 6" /><path d="M19 11a7 7 0 0 1-.8 3.2" /><path d="M12 18v3" /><path d="m3 3 18 18" />
               {:else}
@@ -799,40 +912,47 @@
               {/if}
             </svg>
           </button>
-          <button class="vbtn" class:off={vs.deafened} title="Звук" aria-label="Звук" on:click={() => voice.toggleDeafen()}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <button class="vbtn" class:off={vs.deafened} title="Звук" aria-label="Звук" on:click={toggleDeafen}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="2.5" y="14" width="4" height="6" rx="1.6" /><rect x="17.5" y="14" width="4" height="6" rx="1.6" />
             </svg>
           </button>
           {#if vs.channelId}
-            <button class="vbtn" class:on={vs.cam} title="Камера" aria-label="Камера" on:click={() => voice.toggleCamera().catch(() => {})}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <button class="vbtn" class:on={vs.cam} title="Камера" aria-label="Камера" on:click={toggleCam}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 12 6-3.5v7l-6-3.5" />
               </svg>
             </button>
-            <button class="vbtn" class:on={vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={() => voice.toggleScreen().catch(() => {})}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <button class="vbtn" class:on={vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={toggleScreen}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="2.5" y="4" width="19" height="13" rx="2.5" /><path d="M9 21h6" /><path d="M12 17v4" />
               </svg>
             </button>
             <button class="vbtn leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M15.5 14.5 14 16c-3-1-5-3-6-6l1.5-1.5a1.5 1.5 0 0 0 .2-1.8L8 3.5A1.5 1.5 0 0 0 6.4 2.7H3.3A1.5 1.5 0 0 0 1.8 4.3C2.4 11 7 15.6 13.7 16.2a1.5 1.5 0 0 0 1.6-1.5Z" /><path d="m17 8 5 5" /><path d="m22 8-5 5" />
               </svg>
             </button>
           {:else}
             <button class="vbtn" title="Параметры" aria-label="Параметры" on:click={openProfile}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 11.5 4a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 22.4 11a2 2 0 1 1 0 4Z" />
               </svg>
             </button>
           {/if}
         </div>
       </div>
+    {/if}
   </aside>
 
   <section class="stream-wrap" class:voice-mode={inRoom}>
-    {#if inRoom}
+    {#if !space}
+      <div class="no-space">
+        <h2>Сервера пока нет</h2>
+        <p>Создай свой или зайди по коду приглашения.</p>
+        <button class="set-copy" on:click={() => { newError = ""; showNewServer = true; }}>Создать или войти</button>
+      </div>
+    {:else if inRoom}
       <Room channel={current} {user} people={members} {vs} {voice} />
     {:else if searchOpen}
       <div class="panel">
@@ -958,7 +1078,7 @@
           on:change={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
         />
         <button type="button" class="comp-btn" title="Прикрепить" aria-label="Прикрепить" on:click={() => fileInput?.click()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" />
           </svg>
         </button>
@@ -974,7 +1094,7 @@
         ></textarea>
         <div class="emoji-wrap">
           <button type="button" class="comp-btn" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="8.5" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /><path d="M9 9.5h.01M15 9.5h.01" />
             </svg>
           </button>
@@ -990,7 +1110,7 @@
           {#if uploading}
             <span>…</span>
           {:else}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 12h15" /><path d="m13 6 6 6-6 6" />
             </svg>
           {/if}
@@ -1005,10 +1125,10 @@
       <span class="count">{members.length}</span>
     </div>
 
-    {#if onlineMembers.length}
+    {#each roleGroups as group (group.role.id)}
       <div class="mem-group">
-        <h3>в сети — {onlineMembers.length}</h3>
-        {#each onlineMembers as member (member.id)}
+        <h3><i class="rg-dot" style="background:{group.role.color}"></i>{group.role.name.toLowerCase()} — {group.list.length}</h3>
+        {#each group.list as member (member.id)}
           <div class="mem">
             <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={dotOf(member.id)} />
             <div class="mem-info">
@@ -1016,6 +1136,21 @@
               <div class="mem-act">
                 {STATUS_LABEL[statusOf(member.id)] || "в сети"}{member.roles.length ? ` · ${member.roles.map((r) => r.name).join(" · ")}` : ""}
               </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/each}
+
+    {#if looseOnline.length}
+      <div class="mem-group">
+        <h3>в сети — {looseOnline.length}</h3>
+        {#each looseOnline as member (member.id)}
+          <div class="mem">
+            <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={dotOf(member.id)} />
+            <div class="mem-info">
+              <div class="mem-name">{member.name}</div>
+              <div class="mem-act">{STATUS_LABEL[statusOf(member.id)] || "в сети"}</div>
             </div>
           </div>
         {/each}
@@ -1101,6 +1236,6 @@
     on:space={(e) => (space = e.detail)}
     on:roles={(e) => (roles = e.detail)}
     on:members={(e) => (members = e.detail)}
-    on:deleted={logout}
+    on:deleted={() => dropSpace(space.id)}
   />
 {/if}

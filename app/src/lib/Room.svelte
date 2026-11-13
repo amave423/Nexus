@@ -12,6 +12,7 @@
   let timer = null;
   let stageEl = null;
   let feedEl = null;
+  let mixOpen = false;
 
   const icons = {
     mic: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
@@ -61,6 +62,8 @@
   $: mode = screens.length ? "stream" : cams.length ? "cams" : "talk";
   $: viewers = Math.max(0, roomies.length - 1);
   $: speaking = (p) => vs.levels.has(p.userId);
+  $: volOf = (p) => Math.round(((vs.volumes?.get(p.userId) ?? 1) * 100));
+  $: mutedOf = (p) => !!vs.silent?.has(p.userId);
 
   function videoStream(node, stream) {
     const attach = (s) => {
@@ -114,6 +117,46 @@
     </div>
   {/if}
 
+  {#if mixOpen && roomies.length}
+    <div class="mix">
+      {#each roomies as p (p.userId)}
+        <div class="mix-row">
+          <span class="mix-av" style="background:{p.color || '#c8ff3d'}">{initial(p.name)}</span>
+          <span class="mix-name">{p.name}{p.me ? " · ты" : ""}</span>
+          {#if !p.me}
+            <button
+              class="mix-btn"
+              class:off={mutedOf(p)}
+              title={mutedOf(p) ? "Включить звук участника" : "Выключить звук участника"}
+              aria-label={mutedOf(p) ? "Включить звук участника" : "Выключить звук участника"}
+              on:click={() => voice.setUserMuted(p.userId, !mutedOf(p))}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                {#if mutedOf(p)}
+                  <path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="m16 9 5 6" /><path d="m21 9-5 6" />
+                {:else}
+                  <path d="M11 5 6 9H3v6h3l5 4V5z" /><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" />
+                {/if}
+              </svg>
+            </button>
+            <input
+              class="mix-range"
+              type="range"
+              min="0"
+              max="100"
+              value={volOf(p)}
+              style="--fill:{volOf(p)}%"
+              aria-label={`Громкость ${p.name}`}
+              on:input={(e) => voice.setUserVolume(p.userId, +e.currentTarget.value / 100)}
+            />
+          {:else}
+            <span class="mix-name dim">это ты</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <div class="room-stage" bind:this={stageEl}>
     {#if vs.error}
       <div class="room-error">
@@ -133,7 +176,7 @@
           {plural(viewers, "смотрит", "смотрят", "смотрят")}
         </div>
         <button class="fs-btn" on:click={fullscreen}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html icons.expand}</svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html icons.expand}</svg>
           <span>На весь экран</span>
         </button>
         <div class="stream-strip">
@@ -153,7 +196,7 @@
             {/if}
             <span class="cam-name">{p.name}{p.me ? " · ты" : ""}</span>
             <span class="cam-mic" class:off={p.muted}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html p.muted ? icons.micOff : icons.mic}</svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html p.muted ? icons.micOff : icons.mic}</svg>
             </span>
           </div>
         {/each}
@@ -169,7 +212,7 @@
           <div class="seat" class:speaking={speaking(p)} style="--a:{(360 / Math.max(roomies.length, 1)) * i - 90}deg">
             <span class="seat-av" style="background:{p.color || '#c8ff3d'}">
               {initial(p.name)}
-              {#if p.muted}<i class="seat-mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">{@html icons.micOff}</svg></i>{/if}
+              {#if p.muted}<i class="seat-mute"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{@html icons.micOff}</svg></i>{/if}
             </span>
             <span class="seat-name">{p.name}{p.me ? " · ты" : ""}</span>
           </div>
@@ -183,19 +226,24 @@
 
   <div class="room-controls">
     <button class="rbtn" class:off={vs.muted} on:click={() => voice.toggleMic()} title="Микрофон">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html vs.muted ? icons.micOff : icons.mic}</svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html vs.muted ? icons.micOff : icons.mic}</svg>
     </button>
     <button class="rbtn" class:off={vs.deafened} on:click={() => voice.toggleDeafen()} title="Звук">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html vs.deafened ? icons.headphonesOff : icons.headphones}</svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html vs.deafened ? icons.headphonesOff : icons.headphones}</svg>
     </button>
     <button class="rbtn" class:on={vs.cam} on:click={toggleCam} title="Камера">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html icons.camera}</svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html icons.camera}</svg>
     </button>
     <button class="rbtn" class:on={vs.stream} on:click={toggleScreen} title="Демонстрация экрана">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html icons.screen}</svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html icons.screen}</svg>
+    </button>
+    <button class="rbtn" class:on={mixOpen} on:click={() => (mixOpen = !mixOpen)} title="Громкость участников">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2.2" /><circle cx="8" cy="17" r="2.2" />
+      </svg>
     </button>
     <button class="rbtn leave" on:click={() => voice.leave()}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">{@html icons.phoneOff}</svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html icons.phoneOff}</svg>
       <span>Выйти</span>
     </button>
   </div>

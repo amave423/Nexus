@@ -147,32 +147,32 @@
   {#if !message.deleted}
     <div class="msg-actions">
       <button title="Реакция" aria-label="Реакция" on:click={() => (picker = !picker)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="8.5" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /><path d="M9 9.5h.01M15 9.5h.01" />
         </svg>
       </button>
       <button title="Ответить" aria-label="Ответить" on:click={() => onReply(message)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
           <path d="M9 7 4 12l5 5" /><path d="M4 12h9a6 6 0 0 1 6 6v1" />
         </svg>
       </button>
       {#if canEdit()}
         <button title="Изменить" aria-label="Изменить" on:click={startEdit}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 20h4L20 8l-4-4L4 16v4Z" />
           </svg>
         </button>
       {/if}
       {#if canManage}
         <button title={message.pinned ? "Открепить" : "Закрепить"} aria-label="Закрепить" on:click={() => onPin(message)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style={message.pinned ? "color:var(--acid)" : ""}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style={message.pinned ? "color:var(--acid)" : ""}>
             <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" /><path d="M12 13v7" />
           </svg>
         </button>
       {/if}
       {#if canDelete()}
         <button class="danger" title="Удалить" aria-label="Удалить" on:click={() => onDelete(message)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />
           </svg>
         </button>

@@ -253,8 +253,8 @@ test("голос: звук не пропадает при переходе в т
   assert.equal(await pageB.locator(".seat-mute").count(), 1, "мьют из текстового канала виден в комнате");
 
   await pageA.locator(".voice-seg").getByTitle("Выйти из канала").click();
-  await pageA.locator(".voice-seg").getByTitle("Выйти из канала").waitFor({ state: "detached", timeout: 10000 });
-  assert.equal(await pageA.locator(".voice-seg").count(), 1, "консоль осталась в состоянии «не в голосе»");
+  await pageA.locator(".voice-seg").waitFor({ state: "detached", timeout: 10000 });
+  assert.equal(await pageA.locator(".voice-seg").count(), 0, "панель голоса убрана, когда вышел из канала");
 
   await contextA.close();
   await contextB.close();

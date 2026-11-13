@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld("nexus", {
     checkUpdate: () => ipcRenderer.invoke("update:check"),
     installUpdate: () => ipcRenderer.send("update:install"),
     onUpdate: listen("update:state"),
+    minimize: () => ipcRenderer.send("win:minimize"),
+    toggleMaximize: () => ipcRenderer.send("win:maximize"),
+    close: () => ipcRenderer.send("win:close"),
+    onMaximized: listen("win:maximized"),
   },
   notify: {
     onData: listen("notify:data"),

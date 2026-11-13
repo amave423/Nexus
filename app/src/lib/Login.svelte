@@ -1,5 +1,6 @@
 <script>
   import { api, setToken } from "./api.js";
+  import WinControls from "./WinControls.svelte";
 
   export let onDone;
 
@@ -42,6 +43,7 @@
 </script>
 
 <div class="login">
+  <WinControls floating />
   <div class="login-card">
     <h1>{mode === "register" ? "Заходи по инвайту" : "С возвращением"}</h1>
     <p class="sub">Nexus · только свои</p>
