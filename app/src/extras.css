@@ -950,7 +950,7 @@ body {
 .netstat {
   -webkit-app-region: no-drag;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
   height: 30px;
   padding: 0 11px;

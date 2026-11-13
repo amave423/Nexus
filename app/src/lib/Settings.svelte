@@ -190,7 +190,7 @@
       if (P.noiseMode === "rnnoise") {
         micState = "загружаю шумодав…";
         try {
-          micChain = await buildMicTrack(micStream, { level: 100, mode: "rnnoise" });
+          micChain = await buildMicTrack(micStream, { level: P.micLevel, mode: "rnnoise" });
           track = micChain.track;
           noiseFailed = !!micChain.failed;
         } catch {

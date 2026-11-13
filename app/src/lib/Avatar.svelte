@@ -13,11 +13,7 @@
   )}px;background:${avatar ? "transparent" : color}`;
 </script>
 
-<span class="avatar {cls}" {style}>
-  {#if avatar}
-    <img src={avatar} alt={name} />
-  {:else}
-    {initial}
-  {/if}
+<span class="avatar-shell">
+  <span class="avatar {cls}" {style}>{#if avatar}<img src={avatar} alt={name} />{:else}{initial}{/if}</span>
   {#if dot}<i class="status" style="background:{dot}"></i>{/if}
 </span>

@@ -182,7 +182,8 @@
 </div>
 
 {#if lightbox}
-  <button class="lightbox" aria-label="Закрыть" on:click={() => (lightbox = null)}>
+  <div class="lightbox" role="presentation" on:click={() => (lightbox = null)}>
+    <button class="lightbox-close" aria-label="Закрыть" on:click={() => (lightbox = null)}>×</button>
     <img src={fileUrl(lightbox.url)} alt={lightbox.name} />
-  </button>
+  </div>
 {/if}

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS spaces (
   name        TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   owner_id    INTEGER REFERENCES users(id),
+  media_quota INTEGER NOT NULL DEFAULT 1073741824,
   created_at  INTEGER NOT NULL
 );
 
@@ -86,6 +87,16 @@ CREATE TABLE IF NOT EXISTS attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON attachments(message_id);
 
+CREATE TABLE IF NOT EXISTS media (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file TEXT NOT NULL UNIQUE,
+  space_id INTEGER REFERENCES spaces(id) ON DELETE CASCADE,
+  message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_space_age ON media(space_id, created_at, id);
+
 CREATE TABLE IF NOT EXISTS reactions (
   message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -116,7 +127,7 @@ CREATE TABLE IF NOT EXISTS invites (
 const COLUMNS = [
   ["users", "about", "TEXT NOT NULL DEFAULT ''"],
   ["users", "status", "TEXT NOT NULL DEFAULT 'online'"],
-  ["spaces", "description", "TEXT NOT NULL DEFAULT ''"],
+  ["spaces", "media_quota", "INTEGER NOT NULL DEFAULT 1073741824"],
   ["invites", "expires_at", "INTEGER"],
   ["invites", "revoked", "INTEGER NOT NULL DEFAULT 0"],
   ["messages", "reply_to", "INTEGER"],
