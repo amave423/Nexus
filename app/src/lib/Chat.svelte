@@ -180,12 +180,10 @@
   }
 
   function toggleMic() {
-    cueSound(vs.muted ? "unmute" : "mute");
     voice?.toggleMic();
   }
 
   function toggleDeafen() {
-    cueSound(vs.deafened ? "undeafen" : "deafen");
     voice?.toggleDeafen();
   }
 

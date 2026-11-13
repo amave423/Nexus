@@ -1,6 +1,14 @@
 import { writable } from "svelte/store";
 import { Device } from "mediasoup-client";
 import { buildMicTrack } from "./noise.js";
+import { cue } from "./sound.js";
+import { prefs } from "./prefs.js";
+
+function soundCue(kind) {
+  const pref = prefs.get();
+  if (!pref.voiceSounds) return;
+  cue(kind, pref.volume);
+}
 
 const emptyRemote = () => ({ audio: null, camera: null, screen: null });
 
@@ -524,7 +532,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     for (const track of tracks) track.enabled = !muted;
   }
 
-  async function setMuted(muted) {
+  async function setMuted(muted, silent = false) {
+    const changed = state.muted !== muted;
     state.muted = muted;
     silenceTracks(muted);
     if (micProducer) {
@@ -533,22 +542,25 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       );
     }
     pushState();
+    if (changed && !silent) soundCue(muted ? "mute" : "unmute");
   }
 
-  async function setDeafened(deafened) {
+  async function setDeafened(deafened, silent = false) {
+    const changed = state.deafened !== deafened;
     state.deafened = deafened;
     for (const userId of sinks.keys()) applyUserAudio(userId);
     pushState();
+    if (changed && !silent) soundCue(deafened ? "deafen" : "undeafen");
   }
 
   async function toggleMic() {
     if (state.muted && state.deafened) {
-      await setDeafened(false);
+      await setDeafened(false, true);
       await setMuted(false);
       return;
     }
     await setMuted(!state.muted);
-    if (!state.muted && state.deafened) await setDeafened(false);
+    if (!state.muted && state.deafened) await setDeafened(false, true);
   }
 
   async function toggleDeafen() {
@@ -557,7 +569,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       return;
     }
     await setDeafened(true);
-    if (!state.muted) await setMuted(true);
+    if (!state.muted) await setMuted(true, true);
   }
 
   async function startCamera() {
