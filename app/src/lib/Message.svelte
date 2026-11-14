@@ -55,9 +55,10 @@
     return text.split(re);
   }
 
-  const isImage = (file) => file.mime.startsWith("image/");
-  const isVideo = (file) => file.mime.startsWith("video/");
-  const isAudio = (file) => file.mime.startsWith("audio/");
+  const kindOf = (file) => String(file.mime || "").toLowerCase();
+  const isImage = (file) => kindOf(file).startsWith("image/");
+  const isVideo = (file) => kindOf(file).startsWith("video/");
+  const isAudio = (file) => kindOf(file).startsWith("audio/");
 
   function emojiUrl(emoji) {
     return customEmoji.find((item) => `:${item.name}:` === emoji)?.url || null;

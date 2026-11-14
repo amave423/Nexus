@@ -55,9 +55,9 @@ export async function upload(file, size = {}, spaceId = null) {
     body: file,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  if (!res.ok || !data.url) {
     const err = new Error(data.error || `http_${res.status}`);
-    err.code = data.error;
+    err.code = data.error || "upload_failed";
     throw err;
   }
   return data;

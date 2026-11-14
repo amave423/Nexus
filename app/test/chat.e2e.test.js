@@ -139,6 +139,43 @@ test("чат: картинка загружается и показываетс�
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("чат: txt, docx и архив прикрепляются и открываются по ссылке", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const dir = mkdtempSync(join(tmpdir(), "nexus-files-"));
+  const txt = join(dir, "заметка.txt");
+  const docx = join(dir, "договор.docx");
+  const zip = join(dir, "архив.zip");
+  writeFileSync(txt, "привет из текстового файла");
+  writeFileSync(docx, Buffer.from([0x50, 0x4b, 3, 4, 9, 9, 9]));
+  writeFileSync(zip, Buffer.from([0x50, 0x4b, 3, 4, 1, 2, 3]));
+
+  const page = await browser.newPage();
+  await register(page, { name: "Артём" });
+  await page.locator("input.hidden-file").setInputFiles([txt, docx, zip]);
+  await page.locator(".pend").first().waitFor();
+  await page.waitForFunction(() => document.querySelectorAll(".pend").length === 3, null, { timeout: 15000 });
+  await composer(page).fill("файлы");
+  await composer(page).press("Enter");
+
+  const files = page.locator(".attach.file");
+  await files.first().waitFor({ timeout: 10000 });
+  assert.equal(await files.count(), 3, "все три файла попали в сообщение");
+  const names = await files.allInnerTexts();
+  assert.ok(names.some((text) => text.includes("заметка.txt")), names.join(" | "));
+  assert.ok(names.some((text) => text.includes("договор.docx")), names.join(" | "));
+  assert.ok(names.some((text) => text.includes("архив.zip")), names.join(" | "));
+
+  const href = await files.first().getAttribute("href");
+  const res = await page.request.get(href);
+  assert.equal(res.status(), 200);
+  assert.equal((await res.body()).toString(), "привет из текстового файла");
+
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("голос: шумодав RNNoise включается в проверке микрофона", async (t) => {
   await startServer();
   const browser = await chromium.launch({

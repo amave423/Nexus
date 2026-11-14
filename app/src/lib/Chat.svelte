@@ -1074,7 +1074,7 @@
         <div class="pending">
           {#each pending as file (file.url)}
             <div class="pend">
-              {#if file.mime.startsWith("image/")}
+              {#if String(file.mime || "").startsWith("image/")}
                 <img src={fileUrl(file.url)} alt={file.name} />
               {:else}
                 <span class="pend-icon">↓</span>
