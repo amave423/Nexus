@@ -57,6 +57,7 @@
   let raf = 0;
   let bars = new Array(28).fill(0);
   let micState = "микрофон не запущен";
+  let meterLive = false;
   let micError = false;
   let monitorEl = null;
   let monitoring = false;
@@ -231,6 +232,7 @@
       };
       tick();
       listDevices();
+      meterLive = true;
     } catch (e) {
       micError = true;
       micState = e.name === "NotAllowedError" ? "доступ к микрофону запрещён" : "микрофон не найден";
@@ -280,6 +282,7 @@
   }
 
   function stopMeter() {
+    meterLive = false;
     stopMonitor();
     cancelAnimationFrame(raf);
     raf = 0;
@@ -452,7 +455,7 @@
             />
           </div>
 
-          <div class="vtest" class:live={!!micStream}>
+          <div class="vtest" class:live={meterLive}>
             <div class="vtest-head">
               <b>Проверка микрофона</b>
               <span>{monitoring ? "наушники повторяют твой голос вживую" : "послушай себя в наушниках до входа в комнату"}</span>
@@ -464,8 +467,8 @@
             </div>
             <div class="vtest-status" class:err={micError}>{micState}</div>
             <div class="vtest-actions">
-              <button class="set-copy" on:click={testMic}>{micStream ? "Перезапустить" : "Проверить"}</button>
-              <button class="ghost-btn" class:on={monitoring} on:click={toggleMonitor} disabled={!micStream && !monitoring}>
+              <button class="set-copy" on:click={testMic}>{meterLive ? "Перезапустить" : "Проверить"}</button>
+              <button class="ghost-btn" class:on={monitoring} on:click={toggleMonitor} disabled={!meterLive && !monitoring}>
                 {monitoring ? "Остановить" : "Слушать себя"}
               </button>
             </div>

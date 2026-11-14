@@ -188,24 +188,37 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     }, 350);
   }
 
+  let micBusy = false;
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function startMicWithRetry(attempts = 4) {
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        await startMic();
+        return true;
+      } catch {
+        if (i < attempts - 1) await wait(250 + i * 250);
+      }
+    }
+    return false;
+  }
+
   async function restartMic() {
-    if (!state.joined || leaving) return;
+    if (!state.joined || leaving || micBusy) return;
     clearTimeout(applyTimer);
     const hadMic = !!micProducer || !state.micError;
     if (!hadMic) return;
-    await stopMic();
+    micBusy = true;
     try {
-      await startMic();
-      state.micError = null;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      try {
-        await startMic();
+      await stopMic();
+      if (await startMicWithRetry()) {
         state.micError = null;
-      } catch {
+      } else {
         state.micError = "no_mic";
-        state.muted = true;
       }
+    } finally {
+      micBusy = false;
     }
     publish();
   }
@@ -429,19 +442,25 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   async function requestMic() {
+    micBusy = true;
+    let ok = true;
     try {
-      if (!micProducer) await startMic();
-      state.micError = null;
-      if (state.deafened) await setDeafened(false);
-      await setMuted(false);
-      pushState();
-      return true;
+      if (!micProducer) ok = await startMicWithRetry();
+      if (ok) {
+        state.micError = null;
+        if (state.deafened) await setDeafened(false);
+        await setMuted(false);
+      } else {
+        state.micError = "no_mic";
+      }
     } catch {
+      ok = false;
       state.micError = "no_mic";
-      state.muted = true;
-      pushState();
-      return false;
+    } finally {
+      micBusy = false;
     }
+    pushState();
+    return ok;
   }
 
   async function stopMic() {

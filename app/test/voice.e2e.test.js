@@ -344,6 +344,45 @@ test("голос: мьют с включённым шумодавом дейст
   assert.equal(back.producer, true, "после мьюта снова передаёт");
 });
 
+test("голос: проверка микрофона в настройках не глушит активный канал", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const context = await browser.newContext({ permissions: ["microphone"] });
+  const page = await context.newPage();
+  await register(page, "Артём");
+  await joinVoice(page);
+  await page.locator(".seat").first().waitFor({ timeout: 20000 });
+
+  const before = await page.evaluate(() => ({ muted: window.__nexusVoice.state.muted, error: window.__nexusVoice.state.micError }));
+  assert.equal(before.muted, false, "канал начался с включённым микрофоном");
+
+  await page.locator(".profile-btn").click();
+  await page.getByRole("button", { name: "Голос и видео" }).click();
+  const pane = page.getByRole("dialog");
+  await pane.getByRole("button", { name: "Проверить" }).click();
+  await page.locator(".vtest.live").waitFor({ timeout: 15000 });
+  await page.waitForTimeout(2500);
+  await pane.getByRole("button", { name: "Закрыть" }).click();
+  await page.waitForTimeout(1500);
+
+  const after = await page.evaluate(() => ({
+    muted: window.__nexusVoice.state.muted,
+    error: window.__nexusVoice.state.micError,
+    track: window.__nexusVoice.micTrack() ? window.__nexusVoice.micTrack().readyState : "none",
+  }));
+  assert.equal(after.muted, false, "после проверки микрофон остался включённым");
+  assert.equal(after.error, null, "после проверки нет ошибки микрофона");
+  assert.equal(after.track, "live", "дорожка микрофона жива");
+  assert.equal(await page.locator(".mic-warn").count(), 0, "нет плашки «Микрофон недоступен»");
+
+  const profile = await page.evaluate(() => window.__nexusVoice.state.micError);
+  assert.equal(profile, null);
+
+  await context.close();
+});
+
 test("голос: переход на другой сервер не выкидывает из канала", async (t) => {
   await startServer();
   const browser = await chromium.launch({ args: FAKE_MEDIA });
