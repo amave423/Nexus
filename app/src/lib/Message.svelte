@@ -15,13 +15,13 @@
   export let onReact = () => {};
   export let onPin = () => {};
   export let onJump = () => {};
+  export let onImage = () => {};
 
   const EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀", "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰", "😘", "😋", "😎", "🤔", "🙄", "😴", "😭", "😡", "🤯", "🥳", "😱", "🙏", "👏", "💪", "💯", "✨", "🌟", "💖", "💔", "💰", "🎁", "🎂", "🎮", "🎧", "⚽", "🏆", "🌈", "☀️", "🌙", "🍎", "🍔", "🍟", "🍰", "☕", "🐱", "🐶", "🦊", "🐸", "🐼", "🦄", "⚡", "👻", "🎃"];
   $: allEmoji = [...customEmoji.map((e) => `:${e.name}:`), ...EMOJI];
   let editing = false;
   let draft = "";
   let picker = false;
-  let lightbox = null;
 
   const time = (ts) =>
     new Date(ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
@@ -114,7 +114,7 @@
       <div class="files">
         {#each message.attachments as file (file.id)}
           {#if isImage(file)}
-            <button class="attach shot" on:click={() => (lightbox = file)}>
+            <button class="attach shot" on:click={() => onImage(file)}>
               <img src={fileUrl(file.url)} alt={file.name} loading="lazy" />
               <span class="attach-meta"><b>{file.name}</b><span>{size(file.size)}</span></span>
             </button>
@@ -185,9 +185,3 @@
   {/if}
 </div>
 
-{#if lightbox}
-  <div class="lightbox" role="presentation" on:click={() => (lightbox = null)}>
-    <button class="lightbox-close" aria-label="Закрыть" on:click={() => (lightbox = null)}>×</button>
-    <img src={fileUrl(lightbox.url)} alt={lightbox.name} />
-  </div>
-{/if}

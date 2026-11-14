@@ -10,6 +10,7 @@
   import Message from "./Message.svelte";
   import Settings from "./Settings.svelte";
   import ServerSettings from "./ServerSettings.svelte";
+  import Lightbox from "./Lightbox.svelte";
   import Toasts from "./Toasts.svelte";
   import WinControls from "./WinControls.svelte";
   import { createVoiceClient } from "./voice.js";
@@ -50,6 +51,7 @@
   let voice = null;
   let showSettings = false;
   let showServer = false;
+  let viewer = null;
   let membersHidden = typeof window !== "undefined" && window.innerWidth <= 860;
   let membersTouched = false;
   const syncMembers = () => {
@@ -322,7 +324,13 @@
           const data = await upload(file, size, space.id);
           pending = [...pending, data];
         } catch (error) {
-          toast({ name: "Файл", text: error.code === "too_big" ? "Файл больше 12 МБ" : "Не загрузился", color: "#ff6b8a" });
+          const why =
+            error.code === "too_big"
+              ? "Файл больше 12 МБ"
+              : error.code === "quota_full" || error.code === "disk_limit"
+                ? "На сервере нет места"
+                : "Не загрузился";
+          toast({ name: file.name, text: why, color: "#ff6b8a" });
         }
       }
     } finally {
@@ -1041,6 +1049,7 @@
                 onReact={react}
                 onPin={pin}
                 onJump={jumpTo}
+                onImage={(file) => (viewer = file)}
               />
             </div>
           {/each}
@@ -1237,6 +1246,10 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if viewer}
+  <Lightbox file={viewer} on:close={() => (viewer = null)} />
 {/if}
 
 {#if showServer && space}
