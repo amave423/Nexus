@@ -342,17 +342,8 @@
 
       <div class="set-pane">
         {#if tab === "channels"}
-          <div class="set-row column">
+          <div class="set-row">
             <div class="set-row-t"><b>Каналы</b><span>Создание, переименование и удаление текстовых и голосовых каналов</span></div>
-            {#if can("manage_channels")}
-              <form class="channel-new" on:submit|preventDefault={createChannel}>
-                <input class="set-input" bind:value={channelDraft.name} placeholder="название канала" maxlength="40" />
-                <Dropdown value={channelType} options={["Текстовый", "Голосовой"]} on:change={(e) => (channelType = e.detail)} />
-                <button class="set-copy" type="submit" disabled={settingsBusy || !channelDraft.name.trim()}>
-                  {settingsBusy ? "Создаю…" : "Создать"}
-                </button>
-              </form>
-            {/if}
           </div>
           {#each channels as channel (channel.id)}
             <div class="set-role-wrap">
@@ -382,6 +373,18 @@
               {/if}
             </div>
           {/each}
+          {#if can("manage_channels")}
+            <div class="set-row column chan-create">
+              <div class="set-row-t"><b>Новый канал</b><span>Имя и тип: текстовый или голосовой</span></div>
+              <form class="channel-new" on:submit|preventDefault={createChannel}>
+                <input class="set-input" bind:value={channelDraft.name} placeholder="название канала" maxlength="40" />
+                <Dropdown value={channelType} options={["Текстовый", "Голосовой"]} on:change={(e) => (channelType = e.detail)} />
+                <button class="set-copy" type="submit" disabled={settingsBusy || !channelDraft.name.trim()}>
+                  {settingsBusy ? "Создаю…" : "Создать"}
+                </button>
+              </form>
+            </div>
+          {/if}
           {#if settingsError}<div class="error">{settingsError}</div>{/if}
         {/if}
 

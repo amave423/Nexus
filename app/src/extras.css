@@ -625,6 +625,8 @@ body {
 }
 
 .channel-new .dd { flex: 0 0 150px; min-width: 150px; }
+.chan-create { margin-top: 14px; border-bottom: 0; }
+.chan-create .dd-list { top: auto; bottom: calc(100% + 6px); }
 .channel-new .dd-btn { height: 40px; }
 .channel-new .set-copy { flex: 0 0 auto; height: 40px; }
 
@@ -666,13 +668,10 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  border-radius: 11px;
-  border: 1px solid var(--line-soft);
-  background: rgba(0, 0, 0, 0.25);
+  margin: 0;
 }
 
-.chan-edit .set-input { flex: 1 1 auto; height: 36px; }
+.chan-edit .set-input { flex: 1 1 auto; height: 40px; }
 .chan-edit .mini { flex: 0 0 auto; }
 
 .file-pick {

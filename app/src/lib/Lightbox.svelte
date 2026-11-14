@@ -18,6 +18,7 @@
   let startTx = 0;
   let startTy = 0;
   let moved = false;
+  let stageEl = null;
 
   const clamp = (value) => Math.min(MAX, Math.max(MIN, value));
 
@@ -39,8 +40,23 @@
 
   function onWheel(event) {
     event.preventDefault();
-    if (event.deltaY < 0) zoomTo(scale * 1.15);
-    else zoomTo(scale / 1.15);
+    const next = clamp(event.deltaY < 0 ? scale * 1.15 : scale / 1.15);
+    if (next === scale) return;
+    const box = stageEl?.getBoundingClientRect();
+    if (!box) {
+      zoomTo(next);
+      return;
+    }
+    const px = event.clientX - box.left - box.width / 2 - tx;
+    const py = event.clientY - box.top - box.height / 2 - ty;
+    const k = next / scale;
+    scale = next;
+    tx -= px * (k - 1);
+    ty -= py * (k - 1);
+    if (scale === 1) {
+      tx = 0;
+      ty = 0;
+    }
   }
 
   function onPointerDown(event) {
@@ -96,6 +112,7 @@
   <button class="lightbox-close" aria-label="Закрыть" on:click={close}><X size={20} strokeWidth={2} /></button>
 
   <div
+    bind:this={stageEl}
     class="lightbox-stage"
     class:dragging
     class:zoomed={scale > 1}
