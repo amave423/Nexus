@@ -109,6 +109,21 @@ test("uploads: any file type keeps its extension, attaches to a message and is s
   await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
 });
 
+test("uploads: generic client type is replaced by the real one and the name survives a download", async () => {
+  const c = await setup();
+  const post = (name, type) =>
+    c.app.inject({ method: "POST", url: `/api/upload?space=${c.space.id}`, headers: { ...auth(c.owner.token), "content-type": "application/octet-stream", "x-file-type": type, "x-file-name": encodeURIComponent(name) }, payload: Buffer.from("data") });
+  const rar = await post("архив.rar", "application/octet-stream");
+  assert.equal(rar.statusCode, 200);
+  assert.equal(rar.json().mime, "application/vnd.rar");
+  assert.match(rar.json().url, /\.rar$/);
+  const served = await c.app.inject({ method: "GET", url: `${rar.json().url}?token=${c.owner.token}` });
+  assert.equal(served.headers["content-type"], "application/vnd.rar");
+  assert.match(decodeURIComponent(served.headers["content-disposition"]), /архив\.rar/);
+  assert.match(served.headers["content-disposition"], /^attachment;/);
+  await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
+});
+
 test("uploads: a broken attachment link is refused instead of sending an empty message", async () => {
   const c = await setup();
   const channel = c.channels.find((x) => x.type === "text");

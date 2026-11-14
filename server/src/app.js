@@ -860,6 +860,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   };
 
   const UNSAFE = /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml|text\/javascript|application\/javascript|application\/ecmascript)$/;
+const SHOW = /^(image\/(png|jpeg|webp|gif|avif|heic|heif|bmp)|video\/[a-z0-9.+-]+|audio\/[a-z0-9.+-]+|text\/plain|application\/pdf)$/;
   const safeMime = (value) => {
     const mime = String(value || "").toLowerCase().trim();
     return /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mime) ? mime.slice(0, 80) : "";
@@ -878,8 +879,9 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     let original = "файл";
     try { original = decodeURIComponent(String(req.headers["x-file-name"] || "файл")); } catch {}
     const declared = safeMime(req.headers["x-file-type"]);
+    const generic = !declared || declared === "application/octet-stream" || declared === "binary/octet-stream";
     const ext = extensionOf(original) || EXT[declared] || "bin";
-    const mime = declared || TYPE[ext] || "application/octet-stream";
+    const mime = (generic ? "" : declared) || TYPE[ext] || declared || "application/octet-stream";
     const requestedSpace = Number(req.query.space) || null;
     const size = buffer.length;
     if (size > remainingGlobal()) return reply.code(507).send({ error: "disk_limit" });
@@ -892,7 +894,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     }
     const name = `${randomBytes(12).toString("hex")}.${ext}`;
     writeFileSync(join(filesDir, name), buffer);
-    db.prepare("INSERT INTO media (file,space_id,size,created_at,mime) VALUES (?,?,?,?,?)").run(name, requestedSpace, size, Date.now(), mime);
+    db.prepare("INSERT INTO media (file,space_id,size,created_at,mime,name) VALUES (?,?,?,?,?,?)").run(name, requestedSpace, size, Date.now(), mime, original.slice(0, 120));
     return { url: `/api/files/${name}`, name: original.slice(0, 120), mime, size, width: Number(req.query.w) || null, height: Number(req.query.h) || null };
   });
 
@@ -902,14 +904,16 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     if (!user) return reply.code(401).send({ error: "unauthorized" });
     const storedName = String(req.params.name || "");
     if (!STORED_NAME.test(storedName)) return reply.code(400).send({ error: "bad_name" });
-    const media = db.prepare("SELECT space_id AS spaceId, mime FROM media WHERE file=?").get(storedName);
+    const media = db.prepare("SELECT space_id AS spaceId, mime, name FROM media WHERE file=?").get(storedName);
     if (media?.spaceId && !baseRole(media.spaceId, user.id)) return reply.code(403).send({ error: "forbidden" });
     const path = join(filesDir, storedName);
     if (!existsSync(path)) return reply.code(404).send({ error: "not_found" });
     const ext = storedName.split(".").pop().toLowerCase();
     const known = safeMime(media?.mime) || TYPE[ext] || "application/octet-stream";
     const type = UNSAFE.test(known) ? "application/octet-stream" : known;
+    const shown = String(media?.name || "").split(/[\r\n"]/).join("").trim().slice(0, 120);
     reply.header("content-type", type);
+if (shown) reply.header("content-disposition", (SHOW.test(known) ? "inline" : "attachment") + "; filename=\"" + shown.replace(/[^\x20-\x7e]/g, "_") + "\"; filename*=UTF-8''" + encodeURIComponent(shown));
     reply.header("x-content-type-options", "nosniff");
     reply.header("cache-control", "private, max-age=31536000, immutable");
     return reply.send(createReadStream(path));
