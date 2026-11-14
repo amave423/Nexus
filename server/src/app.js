@@ -33,13 +33,16 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const filesDir = uploadDir || join(process.cwd(), "data", "uploads");
   mkdirSync(filesDir, { recursive: true });
   const diskFree = disk?.free || (() => { const s = statfsSync(filesDir); return s.bavail * s.bsize; });
+  const initialDiskFree = Math.max(0, Number(diskFree()) || 0);
   const diskSummary = () => {
     const free = Math.max(0, Number(diskFree()) || 0);
-    const allocatable = Math.floor(free * 0.8);
     const allocated = Number(db.prepare("SELECT COALESCE(SUM(media_quota),0) AS n FROM spaces").get().n);
-    return { free, allocatable, allocated, remaining: Math.max(0, allocatable - allocated), defaultQuota: 1073741824 };
+    const allocatable = Math.floor(initialDiskFree * 0.8);
+    const used = Number(db.prepare("SELECT COALESCE(SUM(size),0) AS n FROM media").get().n);
+    return { free, allocatable, allocated, used, remaining: Math.max(0, allocatable - used), defaultQuota: 1073741824 };
   };
   const bytesUsed = (spaceId) => Number(db.prepare("SELECT COALESCE(SUM(size),0) AS n FROM media WHERE space_id = ?").get(spaceId).n);
+  const remainingGlobal = () => Math.max(0, Math.floor(initialDiskFree * 0.8) - Number(db.prepare("SELECT COALESCE(SUM(size),0) AS n FROM media").get().n));
   const reclaimMedia = (spaceId, needed) => {
     let used = bytesUsed(spaceId);
     const rows = db.prepare("SELECT file,size FROM media WHERE space_id=? ORDER BY created_at, id").all(spaceId);
@@ -50,6 +53,18 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       db.prepare("DELETE FROM media WHERE file=?").run(row.file);
       used -= row.size;
     }
+  };
+
+  const cleanupFilesForChannel = (channelId) => {
+    const rows = db.prepare("SELECT m.id AS messageId,a.url FROM messages m JOIN attachments a ON a.message_id=m.id WHERE m.channel_id=?").all(channelId);
+    for (const row of rows) {
+      const file = row.url.match(/^\/api\/files\/([a-z0-9]+\.[a-z0-9]+)$/i)?.[1];
+      if (!file) continue;
+      try { unlinkSync(join(filesDir, file)); } catch {}
+      db.prepare("DELETE FROM media WHERE file=?").run(file);
+      db.prepare("DELETE FROM custom_emoji WHERE file=?").run(file);
+    }
+    db.prepare("DELETE FROM channels WHERE id=?").run(channelId);
   };
 
   const spaceOfChannel = (channelId) =>
@@ -162,6 +177,9 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const base = baseRole(spaceId, userId);
     if (!base) return [];
     const set = new Set(BASE_PERMISSIONS[base] || []);
+    if (db.prepare("SELECT owner_id FROM spaces WHERE id=?").get(spaceId)?.owner_id === userId) {
+      for (const perm of PERMISSIONS) set.add(perm);
+    }
     for (const role of rolesOfUser(spaceId, userId)) {
       for (const perm of role.permissions) set.add(perm);
     }
@@ -458,6 +476,44 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     return { user: publicUser(req.user), spaces, ...stateOf(space.id, req.user.id) };
   });
 
+  app.get("/api/spaces/:id/emoji", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!baseRole(spaceId, req.user.id)) return reply.code(403).send({ error: "forbidden" });
+    const rows = db.prepare("SELECT id,name,file FROM custom_emoji WHERE space_id=? ORDER BY name").all(spaceId);
+    return { emoji: rows.map((e) => ({...e,url:`/api/files/${e.file}`})) };
+  });
+
+  app.post("/api/spaces/:id/emoji", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const spaceId = Number(req.params.id);
+    if (!can(spaceId, req.user.id, "manage_emoji")) return reply.code(403).send({ error: "forbidden" });
+    const body = req.body || {};
+    const name = String(body.name || "").trim().toLowerCase();
+    const file = String(body.file || "");
+    if (!/^[a-z0-9_]{2,32}$/.test(name)) return reply.code(400).send({ error: "bad_emoji_name" });
+    const media = db.prepare("SELECT file,space_id,size FROM media WHERE file=?").get(file);
+    if (!media || media.space_id !== spaceId || media.size > 256 * 1024) return reply.code(400).send({ error: "bad_emoji_file" });
+    try {
+      const info = db.prepare("INSERT INTO custom_emoji(space_id,name,file,created_at) VALUES(?,?,?,?)").run(spaceId,name,file,Date.now());
+      const emoji = { id:Number(info.lastInsertRowid),name,file,url:`/api/files/${file}` };
+      hub.broadcastSpace(spaceId,{t:"emoji.update",emoji});
+      return {emoji};
+    } catch { return reply.code(409).send({error:"emoji_exists"}); }
+  });
+
+  app.delete("/api/emoji/:id", async (req, reply) => {
+    if (!auth(req, reply)) return;
+    const emoji = db.prepare("SELECT * FROM custom_emoji WHERE id=?").get(Number(req.params.id));
+    if (!emoji) return reply.code(404).send({error:"not_found"});
+    if (!can(emoji.space_id,req.user.id,"manage_emoji")) return reply.code(403).send({error:"forbidden"});
+    db.prepare("DELETE FROM custom_emoji WHERE id=?").run(emoji.id);
+    try { unlinkSync(join(filesDir,emoji.file)); } catch {}
+    db.prepare("DELETE FROM media WHERE file=?").run(emoji.file);
+    hub.broadcastSpace(emoji.space_id,{t:"emoji.delete",emojiId:emoji.id});
+    return {ok:true};
+  });
+
   app.get("/api/spaces/:id/state", async (req, reply) => {
     if (!auth(req, reply)) return;
     const state = stateOf(Number(req.params.id), req.user.id);
@@ -467,7 +523,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
 
   app.get("/api/disk", async (req, reply) => {
     if (!auth(req, reply)) return;
-    return diskSummary();
+    return { ...diskSummary(), usedBySpaces: db.prepare("SELECT s.id,s.name,s.media_quota AS quota,COALESCE(SUM(m.size),0) AS used FROM spaces s LEFT JOIN media m ON m.space_id=s.id GROUP BY s.id ORDER BY s.id").all() };
   });
 
   app.post("/api/spaces/:id/channels", async (req, reply) => {
@@ -509,10 +565,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     if (!can(row.space_id, req.user.id, "manage_channels")) return reply.code(403).send({ error: "forbidden" });
     const count = Number(db.prepare("SELECT COUNT(*) AS n FROM channels WHERE space_id=?").get(row.space_id).n);
     if (count <= 1) return reply.code(400).send({ error: "last_channel" });
-    const files = db.prepare("SELECT file FROM media WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)").all(id);
-    for (const file of files) { try { unlinkSync(join(filesDir,file.file)); } catch {} }
-    if (files.length) db.prepare("DELETE FROM media WHERE file IN ("+files.map(()=>"?").join(",")+")").run(...files.map(f=>f.file));
-    db.prepare("DELETE FROM channels WHERE id=?").run(id);
+    cleanupFilesForChannel(id);
     hub.broadcastSpace(row.space_id, { t: "channel.delete", channelId:id });
     return { ok:true };
   });
@@ -524,9 +577,11 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const name = String((req.body || {}).name || "").trim();
     if (name.length < 2 || name.length > 40) return reply.code(400).send({ error: "name_length" });
     const now = Date.now();
-    const quota = Number((req.body || {}).quotaBytes) || 1073741824;
-    const available = diskSummary().remaining;
-    if (quota < 64 * 1024 * 1024 || quota > available) return reply.code(400).send({ error: "quota_over_limit", ...diskSummary() });
+    const requested = Number((req.body || {}).quotaBytes);
+    const quota = Number.isSafeInteger(requested) ? requested : 1073741824;
+    const allocated = Number(db.prepare("SELECT COALESCE(SUM(media_quota),0) AS n FROM spaces").get().n);
+    const maxAllocated = Math.floor(initialDiskFree * 0.8);
+    if (allocated + quota > maxAllocated) return reply.code(400).send({ error: "quota_over_limit", ...diskSummary() });
     const info = db
       .prepare("INSERT INTO spaces (name, description, owner_id, media_quota, created_at) VALUES (?, '', ?, ?, ?)")
       .run(name, req.user.id, quota, now);
@@ -541,8 +596,10 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     );
     ins.run(spaceId, "general", "text", 0);
     ins.run(spaceId, "Кухня", "voice", 1);
+    const state = stateOf(spaceId, req.user.id);
+    const space = { ...state.space, mediaQuota: quota };
     hub.setSpaces(req.user.id, spaceIdsOf(req.user.id));
-    return stateOf(spaceId, req.user.id);
+    return { ...state, space };
   });
 
   app.post("/api/invites/:code/join", async (req, reply) => {
@@ -784,19 +841,13 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const mime = String(req.headers["x-file-type"] || "application/octet-stream");
     if (buffer.length > 12 * 1024 * 1024) return reply.code(413).send({ error: "too_big" });
     let original = "файл";
-    try {
-      original = decodeURIComponent(String(req.headers["x-file-name"] || "файл"));
-    } catch {
-      /* имя не в utf-8 — оставим запасное */
-    }
-    const fromName = original.includes(".")
-      ? original.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8)
-      : "";
+    try { original = decodeURIComponent(String(req.headers["x-file-name"] || "файл")); } catch {}
+    const fromName = original.includes(".") ? original.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) : "";
     const ext = EXT[mime] || fromName || "bin";
     const requestedSpace = Number(req.query.space) || null;
     const size = buffer.length;
     const summary = diskSummary();
-    if (size > summary.remaining) return reply.code(507).send({ error: "disk_limit" });
+    if (size > remainingGlobal()) return reply.code(507).send({ error: "disk_limit" });
     if (requestedSpace) {
       if (!baseRole(requestedSpace, req.user.id)) return reply.code(403).send({ error: "forbidden" });
       const quota = Number(db.prepare("SELECT media_quota FROM spaces WHERE id=?").get(requestedSpace)?.media_quota || 0);
@@ -807,14 +858,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const name = `${randomBytes(12).toString("hex")}.${ext}`;
     writeFileSync(join(filesDir, name), buffer);
     db.prepare("INSERT INTO media (file,space_id,size,created_at) VALUES (?,?,?,?)").run(name, requestedSpace, size, Date.now());
-    return {
-      url: `/api/files/${name}`,
-      name: original.slice(0, 120),
-      mime,
-      size: buffer.length,
-      width: Number(req.query.w) || null,
-      height: Number(req.query.h) || null,
-    };
+    return { url: `/api/files/${name}`, name: original.slice(0, 120), mime, size, width: Number(req.query.w) || null, height: Number(req.query.h) || null };
   });
 
   app.get("/api/files/:name", async (req, reply) => {
@@ -843,6 +887,13 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     if (!can(spaceId, req.user.id, "manage_server"))
       return reply.code(403).send({ error: "forbidden" });
     const body = req.body || {};
+    if (body.quotaBytes !== undefined) {
+      const quota = Number(body.quotaBytes);
+      const totalOther = Number(db.prepare("SELECT COALESCE(SUM(media_quota),0) AS n FROM spaces WHERE id<>?").get(spaceId).n);
+      const available = Math.max(0, Math.floor(initialDiskFree * 0.8) - totalOther);
+      if (!Number.isSafeInteger(quota) || quota < 64 * 1024 * 1024 || quota > available || quota < bytesUsed(spaceId)) return reply.code(400).send({ error: "quota_over_limit", ...diskSummary() });
+      db.prepare("UPDATE spaces SET media_quota=? WHERE id=?").run(quota, spaceId);
+    }
     const patch = {};
     if (body.name !== undefined) {
       const name = String(body.name).trim();
@@ -858,6 +909,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       );
     }
     const space = spacesOf(req.user.id).find((s) => s.id === spaceId);
+    if (space) space.mediaQuota = Number(db.prepare("SELECT media_quota FROM spaces WHERE id=?").get(spaceId).media_quota);
     hub.broadcastSpace(spaceId, { t: "space.update", space });
     return { space };
   });

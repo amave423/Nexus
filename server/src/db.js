@@ -97,6 +97,15 @@ CREATE TABLE IF NOT EXISTS media (
 );
 CREATE INDEX IF NOT EXISTS idx_media_space_age ON media(space_id, created_at, id);
 
+CREATE TABLE IF NOT EXISTS custom_emoji (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  space_id INTEGER NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  file TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(space_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS reactions (
   message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
