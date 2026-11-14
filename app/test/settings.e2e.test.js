@@ -134,7 +134,7 @@ test("настройки сервера: роль создаётся и назн
   await guest.locator(".mem-act", { hasText: "Дизайнер" }).waitFor({ timeout: 10000 });
 });
 
-test("настройки сервера: канал создаётся и удаляется", async (t) => {
+test("настройки сервера: канал создаётся, переименовывается и удаляется", async (t) => {
   await startServer();
   const browser = await chromium.launch();
   t.after(() => stopAll(browser));
@@ -153,11 +153,23 @@ test("настройки сервера: канал создаётся и уда
 
   await owner.locator(".server-settings-trigger").click();
   await owner.getByRole("dialog").getByRole("button", { name: "Каналы" }).click();
-  owner.once("dialog", (d) => d.accept());
-  await owner.locator(".channel-item", { hasText: "новости" }).getByRole("button", { name: "Удалить" }).click();
-  await owner.waitForFunction(() => ![...document.querySelectorAll(".channel-item .nm")].some((n) => n.textContent.includes("новости")));
+  const created = owner.locator(".channel-item", { hasText: "новости" });
+  await created.getByRole("button", { name: "Изменить" }).click();
+  await owner.locator(".chan-edit .set-input").fill("архив");
+  await owner.locator(".chan-edit").getByRole("button", { name: "Сохранить" }).click();
+  await owner.locator(".channel-item .nm", { hasText: "архив" }).waitFor();
   await owner.getByRole("button", { name: "Закрыть" }).click();
-  await owner.waitForFunction(() => ![...document.querySelectorAll(".chan .nm")].some((n) => n.textContent.includes("новости")));
+  await owner.locator(".chan", { hasText: "архив" }).waitFor({ timeout: 10000 });
+
+  await owner.locator(".server-settings-trigger").click();
+  await owner.getByRole("dialog").getByRole("button", { name: "Каналы" }).click();
+  const row = owner.locator(".channel-item", { hasText: "архив" });
+  await row.getByRole("button", { name: "Удалить" }).click();
+  await row.getByText("Удалить и все сообщения?").waitFor();
+  await row.getByRole("button", { name: "Да" }).click();
+  await owner.waitForFunction(() => ![...document.querySelectorAll(".channel-item .nm")].some((n) => n.textContent.includes("архив")));
+  await owner.getByRole("button", { name: "Закрыть" }).click();
+  await owner.waitForFunction(() => ![...document.querySelectorAll(".chan .nm")].some((n) => n.textContent.includes("архив")));
 });
 
 test("настройки сервера: свой смайлик виден в списке и в сообщении", async (t) => {

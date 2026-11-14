@@ -3,7 +3,7 @@
   import { api, fileUrl, upload } from "./api.js";
   import Avatar from "./Avatar.svelte";
   import Dropdown from "./Dropdown.svelte";
-  import { Shield, Hash, FaceSlightlySmiling, UserCog, Users, Link, TriangleExclamationPoint } from "@lucide/svelte";
+  import { Shield, Hash, FaceSlightlySmiling, UserCog, Users, Link, TriangleExclamationPoint, Volume2 } from "@lucide/svelte";
 
   export let space;
   export let roles = [];
@@ -72,6 +72,10 @@
   let disk = null;
   let emoji = [];
   let channelDraft = { name: "", type: "text" };
+  let channelType = "Текстовый";
+  let editingChannel = null;
+  let channelNameDraft = "";
+  let confirmChannel = null;
   let emojiName = "";
   let emojiFile = null;
   let quotaGiB = "1";
@@ -188,27 +192,50 @@
     settingsBusy = true;
     settingsError = "";
     try {
-      const data = await api(`/api/spaces/${space.id}/channels`, { method: "POST", body: channelDraft });
+      const data = await api(`/api/spaces/${space.id}/channels`, { method: "POST", body: { ...channelDraft, type: channelType === "Голосовой" ? "voice" : "text" } });
       channels = [...channels, data.channel];
       channelDraft = { name: "", type: "text" };
+      channelType = "Текстовый";
     } catch (e) { settingsError = e.message; }
     finally { settingsBusy = false; }
   }
 
-  async function renameChannel(channel) {
-    const name = window.prompt("Новое название канала", channel.name);
-    if (name === null || !name.trim()) return;
+  function startChannelEdit(channel) {
+    editingChannel = channel.id;
+    channelNameDraft = channel.name;
+    confirmChannel = null;
+    settingsError = "";
+  }
+
+  async function saveChannelName(channel) {
+    const value = channelNameDraft.trim();
+    if (!value) {
+      settingsError = "У канала должно быть название";
+      return;
+    }
+    if (value === channel.name) {
+      editingChannel = null;
+      return;
+    }
     try {
-      const data = await api(`/api/channels/${channel.id}`, { method: "PATCH", body: { name: name.trim() } });
+      const data = await api(`/api/channels/${channel.id}`, { method: "PATCH", body: { name: value } });
       channels = channels.map((c) => c.id === channel.id ? data.channel : c);
-    } catch (e) { settingsError = e.message; }
+      editingChannel = null;
+      settingsError = "";
+    } catch (e) { settingsError = e.code === "name_length" ? "Название канала: от 1 до 40 символов" : e.message; }
   }
 
   async function deleteChannel(channel) {
-    if (!window.confirm(`Удалить канал «${channel.name}» и его сообщения?`)) return;
+    if (confirmChannel !== channel.id) {
+      confirmChannel = channel.id;
+      editingChannel = null;
+      return;
+    }
+    confirmChannel = null;
     try {
       await api(`/api/channels/${channel.id}`, { method: "DELETE" });
       channels = channels.filter((c) => c.id !== channel.id);
+      settingsError = "";
     } catch (e) { settingsError = e.code === "last_channel" ? "Нельзя удалить последний канал" : e.message; }
   }
 
@@ -315,21 +342,44 @@
 
       <div class="set-pane">
         {#if tab === "channels"}
-          <div class="set-row">
+          <div class="set-row column">
             <div class="set-row-t"><b>Каналы</b><span>Создание, переименование и удаление текстовых и голосовых каналов</span></div>
             {#if can("manage_channels")}
-              <div class="channel-new">
+              <form class="channel-new" on:submit|preventDefault={createChannel}>
                 <input class="set-input" bind:value={channelDraft.name} placeholder="название канала" maxlength="40" />
-                <select class="set-input" bind:value={channelDraft.type}><option value="text">Текстовый</option><option value="voice">Голосовой</option></select>
-                <button class="set-copy" disabled={settingsBusy || !channelDraft.name.trim()} on:click={createChannel}>Создать</button>
-              </div>
+                <Dropdown value={channelType} options={["Текстовый", "Голосовой"]} on:change={(e) => (channelType = e.detail)} />
+                <button class="set-copy" type="submit" disabled={settingsBusy || !channelDraft.name.trim()}>
+                  {settingsBusy ? "Создаю…" : "Создать"}
+                </button>
+              </form>
             {/if}
           </div>
           {#each channels as channel (channel.id)}
-            <div class="set-role channel-item">
-              <span class="nm">{channel.type === "voice" ? "◖" : "#"} {channel.name}</span>
-              <span class="cnt">{channel.type === "voice" ? "голосовой" : "текстовый"}</span>
-              {#if can("manage_channels")}<button class="mini" on:click={() => renameChannel(channel)}>Изменить</button><button class="mini danger" on:click={() => deleteChannel(channel)}>Удалить</button>{/if}
+            <div class="set-role-wrap">
+              <div class="set-role channel-item">
+                <span class="chan-mark" class:voice={channel.type === "voice"}>{#if channel.type === "voice"}<Volume2 size={15} strokeWidth={2} />{:else}#{/if}</span>
+                <span class="nm">{channel.name}</span>
+                <span class="cnt">{channel.type === "voice" ? "голосовой" : "текстовый"}</span>
+                {#if can("manage_channels")}
+                  <span class="chan-actions">
+                    {#if confirmChannel === channel.id}
+                      <span class="chan-confirm">Удалить и все сообщения?</span>
+                      <button class="mini danger" on:click={() => deleteChannel(channel)}>Да</button>
+                      <button class="mini" on:click={() => (confirmChannel = null)}>Нет</button>
+                    {:else}
+                      <button class="mini" on:click={() => startChannelEdit(channel)}>Изменить</button>
+                      <button class="mini danger" on:click={() => deleteChannel(channel)}>Удалить</button>
+                    {/if}
+                  </span>
+                {/if}
+              </div>
+              {#if editingChannel === channel.id}
+                <form class="chan-edit" on:submit|preventDefault={() => saveChannelName(channel)}>
+                  <input class="set-input" bind:value={channelNameDraft} maxlength="40" autofocus />
+                  <button class="mini" type="submit">Сохранить</button>
+                  <button class="mini ghost" type="button" on:click={() => (editingChannel = null)}>Отмена</button>
+                </form>
+              {/if}
             </div>
           {/each}
           {#if settingsError}<div class="error">{settingsError}</div>{/if}
@@ -340,7 +390,10 @@
           {#if can("manage_emoji")}
             <div class="emoji-admin">
               <input class="set-input" bind:value={emojiName} placeholder="имя (латиница, цифры, _)" maxlength="32" />
-              <input bind:this={uploadEmojiInput} type="file" accept="image/*" on:change={(e) => (emojiFile = e.currentTarget.files?.[0] || null)} />
+              <label class="file-pick" class:filled={!!emojiFile}>
+                <input bind:this={uploadEmojiInput} type="file" accept="image/*" hidden on:change={(e) => (emojiFile = e.currentTarget.files?.[0] || null)} />
+                <span>{emojiFile ? emojiFile.name : "Выбрать файл"}</span>
+              </label>
               <button class="set-copy" disabled={settingsBusy || !emojiName.trim() || !emojiFile} on:click={addCustomEmoji}>Добавить</button>
             </div>
           {/if}
