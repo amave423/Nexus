@@ -254,10 +254,48 @@ body {
   background: none;
 }
 
-.emoji-pop { grid-template-columns: repeat(8,34px); max-height: min(300px,60vh); overflow-y:auto; }
+.emoji-pop {
+  position: absolute;
+  bottom: 46px;
+  left: -44px;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(8, 34px);
+  gap: 3px;
+  padding: 7px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  max-height: min(300px, 60vh);
+  max-width: calc(100vw - 24px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.emoji-pop .emoji-search {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--txt);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.emoji-pop .emoji-search::placeholder {
+  color: var(--dim);
+}
+
+.emoji-pop .emoji-search:focus {
+  border-color: rgba(var(--acid-rgb), 0.5);
+}
 .emoji-pop button { display:grid; place-items:center; }
 .emoji-pop button img { width:23px; height:23px; object-fit:contain; }
-.picker { display:grid; grid-template-columns:repeat(8,34px); gap:3px; max-width:min(330px,calc(100vw - 48px)); max-height:280px; overflow:auto; padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--bg-3); box-shadow:0 14px 34px rgba(0,0,0,.5); }
+.picker { display:grid; grid-template-columns:repeat(8,34px); gap:3px; max-width:min(330px,calc(100vw - 48px)); max-height:280px; overflow-x:hidden; overflow-y:auto; padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--bg-3); box-shadow:0 14px 34px rgba(0,0,0,.5); }
 .picker button { display:grid; place-items:center; width:34px; height:34px; border-radius:8px; font-size:18px; background:none; }
 .picker button:hover { background:rgba(255,255,255,.08); }
 .picker img { width:23px; height:23px; object-fit:contain; }
@@ -1044,7 +1082,10 @@ body {
   background: currentColor;
   box-shadow: 0 0 8px currentColor;
 }
-.netstat { align-items: baseline; gap: 5px; line-height: 1; }
+.netstat { align-items: center; gap: 5px; line-height: 1; }
+.netstat .net-dot { flex: none; align-self: center; margin: 0; }
+.netstat .net-val { display: inline-flex; align-items: baseline; gap: 4px; line-height: 1; }
+.netstat b, .netstat .net-unit { line-height: 1; }
 .netstat .net-dot { flex: none; align-self: center; margin: 0; }
 .netstat b, .netstat .net-unit { line-height: 1; }
 
@@ -1074,6 +1115,33 @@ body {
 .netstat.none .net-dot {
   box-shadow: none;
   animation: none;
+}
+
+/* тёмные тонкие полосы прокрутки во всём приложении */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.emoji-pop::-webkit-scrollbar,
+.picker::-webkit-scrollbar,
+.mix::-webkit-scrollbar {
+  width: 6px;
 }
 
 .win-controls {

@@ -839,8 +839,7 @@
 
   <span class="netstat {pingTone}" title={status === "online" ? "Задержка до сервера" : "Нет связи с сервером"}>
     <i class="net-dot"></i>
-    <b>{ping === null ? "—" : ping}</b>
-    <span class="net-unit">мс</span>
+    <span class="net-val"><b>{ping === null ? "—" : ping}</b> <span class="net-unit">мс</span></span>
   </span>
 
   <a class="brand" href="#" aria-label="Nexus" on:click|preventDefault={() => {}}>
