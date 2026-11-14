@@ -134,6 +134,63 @@ test("настройки сервера: роль создаётся и назн
   await guest.locator(".mem-act", { hasText: "Дизайнер" }).waitFor({ timeout: 10000 });
 });
 
+test("настройки сервера: канал создаётся и удаляется", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const owner = await browser.newPage();
+  await register(owner, { name: "Артём" });
+
+  await owner.locator(".server-settings-trigger").click();
+  const dialog = owner.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Каналы" }).click();
+  await owner.getByPlaceholder("название канала").fill("новости");
+  await owner.getByRole("button", { name: "Создать", exact: true }).click();
+  await owner.locator(".channel-item .nm", { hasText: "новости" }).waitFor();
+  await owner.getByRole("button", { name: "Закрыть" }).click();
+  await owner.locator(".chan", { hasText: "новости" }).waitFor({ timeout: 10000 });
+
+  await owner.locator(".server-settings-trigger").click();
+  await owner.getByRole("dialog").getByRole("button", { name: "Каналы" }).click();
+  owner.once("dialog", (d) => d.accept());
+  await owner.locator(".channel-item", { hasText: "новости" }).getByRole("button", { name: "Удалить" }).click();
+  await owner.waitForFunction(() => ![...document.querySelectorAll(".channel-item .nm")].some((n) => n.textContent.includes("новости")));
+  await owner.getByRole("button", { name: "Закрыть" }).click();
+  await owner.waitForFunction(() => ![...document.querySelectorAll(".chan .nm")].some((n) => n.textContent.includes("новости")));
+});
+
+test("настройки сервера: свой смайлик виден в списке и в сообщении", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const owner = await browser.newPage();
+  await register(owner, { name: "Артём" });
+
+  await owner.locator(".server-settings-trigger").click();
+  const dialog = owner.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Смайлики" }).click();
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64"
+  );
+  await owner.locator(".emoji-admin input[type=file]").setInputFiles({ name: "face.png", mimeType: "image/png", buffer: png });
+  await owner.getByPlaceholder("имя (латиница, цифры, _)").fill("face");
+  await owner.getByRole("button", { name: "Добавить" }).click();
+  await owner.locator(".emoji-admin-item", { hasText: ":face:" }).waitFor({ timeout: 10000 });
+  await owner.getByRole("button", { name: "Закрыть" }).click();
+
+  const composer = owner.getByPlaceholder("Написать в #general");
+  await composer.fill("мой :face: смайлик");
+  await composer.press("Enter");
+  await owner.locator(".msg .custom-emoji").first().waitFor({ timeout: 10000 });
+
+  await owner.locator(".comp-btn[aria-label='Эмодзи']").click();
+  await owner.locator(".emoji-pop button[title=':face:']").waitFor();
+  assert.ok((await owner.locator(".emoji-pop button").count()) > 20, "в палитре больше двух десятков смайликов");
+});
+
 test("настройки сервера: приглашение создаётся, участник его не видит", async (t) => {
   await startServer();
   const browser = await chromium.launch();

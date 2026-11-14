@@ -198,8 +198,14 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       await startMic();
       state.micError = null;
     } catch {
-      state.micError = "no_mic";
-      state.muted = true;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      try {
+        await startMic();
+        state.micError = null;
+      } catch {
+        state.micError = "no_mic";
+        state.muted = true;
+      }
     }
     publish();
   }
@@ -355,8 +361,26 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const QUALITY = { "64 kbps": 64000, "96 kbps": 96000, "128 kbps": 128000 };
   let micChain = null;
 
-  async function startMic() {
-    if (micProducer) return;
+  let micStarting = null;
+
+  function startMic() {
+    if (micProducer) return Promise.resolve();
+    if (micStarting) return micStarting;
+    micStarting = openMic().finally(() => (micStarting = null));
+    return micStarting;
+  }
+
+  function micTrack() {
+    const chained = micChain?.track || null;
+    if (chained && chained.readyState === "live") return chained;
+    const producer = micProducer?.track || null;
+    if (producer && producer.readyState === "live") return producer;
+    const raw = micStream?.getAudioTracks()[0] || null;
+    if (raw && raw.readyState === "live") return raw;
+    return null;
+  }
+
+  async function openMic() {
     const pref = settings() || {};
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -405,17 +429,17 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   async function requestMic() {
-    if (micProducer) return true;
     try {
-      await startMic();
+      if (!micProducer) await startMic();
       state.micError = null;
       if (state.deafened) await setDeafened(false);
       await setMuted(false);
+      pushState();
       return true;
     } catch {
       state.micError = "no_mic";
       state.muted = true;
-      publish();
+      pushState();
       return false;
     }
   }
@@ -554,6 +578,10 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   async function toggleMic() {
+    if (!micProducer && (state.muted || state.micError)) {
+      await requestMic();
+      return;
+    }
     if (state.muted && state.deafened) {
       await setDeafened(false, true);
       await setMuted(false);
@@ -780,6 +808,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     setUserVolume,
     setUserMuted,
     requestMic,
+    micTrack,
     micInfo,
     stats,
     get state() {
