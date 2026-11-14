@@ -654,7 +654,11 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const body = req.body || {};
     const text = String(body.text || "").trim();
     const incoming = Array.isArray(body.attachments) ? body.attachments.slice(0, 10) : [];
-    const files = incoming.filter((file) => FILE_URL.test(String(file?.url || "")));
+    const files = incoming.filter((file) => {
+      const url = String(file?.url || "");
+      if (!FILE_URL.test(url)) return false;
+      return !!db.prepare("SELECT 1 FROM media WHERE file=?").get(url.split("/").pop());
+    });
     if (!text && !files.length) return reply.code(400).send({ error: incoming.length ? "bad_file" : "empty" });
     if (text.length > 4000) return reply.code(400).send({ error: "too_long" });
 

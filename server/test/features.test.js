@@ -131,6 +131,10 @@ test("uploads: a broken attachment link is refused instead of sending an empty m
   const bad = await c.app.inject({ method: "POST", url: `/api/channels/${channel.id}/messages`, headers: auth(c.owner.token), payload: { text: "", attachments: [{ url: "https://evil/x.txt", name: "x.txt", mime: "text/plain" }] } });
   assert.equal(bad.statusCode, 400);
   assert.equal(bad.json().error, "bad_file");
+  const ghost = await c.app.inject({ method: "POST", url: `/api/channels/${channel.id}/messages`, headers: auth(c.owner.token), payload: { text: "", attachments: [{ url: "/api/files/0123456789abcdef01234567.docx", name: "ghost.docx", mime: "application/octet-stream" }] } });
+  assert.equal(ghost.statusCode, 400);
+  assert.equal(ghost.json().error, "bad_file");
+  assert.equal(c.db.prepare("SELECT COUNT(*) AS n FROM messages").get().n, before);
   assert.equal(c.db.prepare("SELECT COUNT(*) AS n FROM messages").get().n, before);
   const empty = await c.app.inject({ method: "POST", url: `/api/channels/${channel.id}/messages`, headers: auth(c.owner.token), payload: { text: "" } });
   assert.equal(empty.statusCode, 400);
