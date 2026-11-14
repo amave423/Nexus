@@ -55,8 +55,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "perMachine": true,
-      "allowElevation": true,
+      "perMachine": false,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": false,
       "runAfterFinish": true,
       "createDesktopShortcut": true,
@@ -68,6 +68,7 @@
     }
   },
   "dependencies": {
+    "@lucide/svelte": "^1.72.0",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "electron-updater": "^6.8.11",
     "mediasoup-client": "^3.26.0"

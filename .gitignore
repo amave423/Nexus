@@ -18,3 +18,4 @@ gitlog.txt
 .env*
 server/tmpdata/
 artifacts/
+.tmpshots/
