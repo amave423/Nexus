@@ -14,6 +14,7 @@
   import WinControls from "./WinControls.svelte";
   import { createVoiceClient } from "./voice.js";
   import { rnnoiseReady, rnnoiseError } from "./noise.js";
+  import { Hash, Volume2, Settings as SettingsIcon, Search, Pin, Users, FaceSlightlySmiling, Paperclip, Send, PhoneOff, Mic, MicOff, Headphones, HeadphoneOff, Video, MonitorUp, Plus, Pencil, Trash, X, Menu } from "@lucide/svelte";
 
   export let user;
   export let onLogout;
@@ -30,6 +31,8 @@
   let lastSeen = {};
   let showNewServer = false;
   let newName = "";
+  let newQuotaGiB = "1";
+  let diskInfo = null;
   let joinCode = "";
   let newError = "";
   let busy = false;
@@ -72,7 +75,9 @@
   let lastVoiceChannel = null;
   let lastRoster = null;
 
-  const QUICK_EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀"];
+  let customEmoji = [];
+  let emojiSearch = "";
+  const QUICK_EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀", "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰", "😘", "😋", "😎", "🤔", "🙄", "😴", "😭", "😡", "🤯", "🥳", "😱", "🙏", "👏", "💪", "💯", "✨", "🌟", "💖", "💔", "💰", "🎁", "🎂", "🎮", "🎧", "⚽", "🏆", "🌈", "☀️", "🌙", "🍎", "🍕", "🍔", "🍟", "🍰", "☕", "🐱", "🐶", "🦊", "🐸", "🐼", "🦄", "🚀", "✈️", "🚗", "❤️‍🔥", "🤖", "💀", "👻", "🎃", "🤝", "✅", "❌", "⚡", "🔥"];
 
   const emptyVoice = {
     channelId: null,
@@ -314,7 +319,7 @@
           });
         }
         try {
-          const data = await upload(file, size);
+          const data = await upload(file, size, space.id);
           pending = [...pending, data];
         } catch (error) {
           toast({ name: "Файл", text: error.code === "too_big" ? "Файл больше 12 МБ" : "Не загрузился", color: "#ff6b8a" });
@@ -522,6 +527,32 @@
       if (pinsOpen && current?.id === event.channelId) openPins();
       return;
     }
+    if (event.t === "channel.create") {
+      channels = [...channels, event.channel];
+      return;
+    }
+    if (event.t === "channel.update") {
+      channels = channels.map((c) => c.id === event.channel.id ? event.channel : c);
+      if (current?.id === event.channel.id) current = event.channel;
+      return;
+    }
+    if (event.t === "channel.delete") {
+      channels = channels.filter((c) => c.id !== event.channelId);
+      if (current?.id === event.channelId) {
+        const next = channels.find((c) => c.type === "text");
+        if (next) openChannel(next);
+        else { current = null; messages = []; }
+      }
+      return;
+    }
+    if (event.t === "emoji.update") {
+      customEmoji = [...customEmoji.filter((e) => e.id !== event.emoji.id), event.emoji];
+      return;
+    }
+    if (event.t === "emoji.delete") {
+      customEmoji = customEmoji.filter((e) => e.id !== event.emojiId);
+      return;
+    }
     if (event.t === "presence") {
       online = new Set(event.online);
       statuses = event.statuses || {};
@@ -608,10 +639,19 @@
       showServer = true;
       return;
     }
-    const state = await api(`/api/spaces/${target.id}/state`);
+    const [state, emojiData] = await Promise.all([
+      api(`/api/spaces/${target.id}/state`), api(`/api/spaces/${target.id}/emoji`)
+    ]);
     applyState(state);
+    customEmoji = emojiData.emoji;
     const first = channels.find((c) => c.type === "text");
     if (first) await openChannel(first);
+  }
+
+  async function openNewServer() {
+    newError = "";
+    showNewServer = true;
+    try { diskInfo = await api("/api/disk"); } catch { diskInfo = null; }
   }
 
   async function createSpace() {
@@ -622,7 +662,8 @@
     }
     busy = true;
     try {
-      const state = await api("/api/spaces", { method: "POST", body: { name } });
+      const quotaBytes = Math.round(Number(newQuotaGiB) * 1024 ** 3);
+      const state = await api("/api/spaces", { method: "POST", body: { name, quotaBytes } });
       spaces = [...spaces, { ...state.space, channels: state.channels }];
       showNewServer = false;
       newName = "";
@@ -730,6 +771,7 @@
     const boot = await api("/api/bootstrap");
     spaces = boot.spaces || [];
     applyState(boot);
+    customEmoji = (await api(`/api/spaces/${boot.space.id}/emoji`).catch(() => ({emoji:[]}))).emoji;
     const first = boot.channels.find((c) => c.type === "text");
     if (first) await openChannel(first);
     socket = connect(handleEvent, (s) => (status = s), (ms) => (ping = ms));
@@ -792,9 +834,7 @@
 
 <header class="topbar">
   <button class="icon-btn menu-btn" aria-label="Каналы" on:click={() => (sideOpen = !sideOpen)}>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 7h16M4 12h16M4 17h16" />
-    </svg>
+    <Menu size={17} strokeWidth={1.8} />
   </button>
 
   <span class="netstat {pingTone}" title={status === "online" ? "Задержка до сервера" : "Нет связи с сервером"}>
@@ -810,25 +850,14 @@
   <div class="top-actions">
     {#if !inRoom}
       <button class="icon-btn" class:on={searchOpen} aria-label="Поиск" title="Поиск (Ctrl+K)" on:click={() => { searchOpen = !searchOpen; pinsOpen = false; }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="M16 16l4.5 4.5" />
-        </svg>
+        <Search size={17} strokeWidth={1.8} />
       </button>
       <button class="icon-btn" class:on={pinsOpen} aria-label="Закреплённые" title="Закреплённые" on:click={openPins}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
-          <path d="M12 13v7" />
-        </svg>
+        <Pin size={17} strokeWidth={1.8} />
       </button>
     {/if}
     <button class="icon-btn" class:on={!membersHidden} aria-label="Участники" title="Участники" on:click={() => { membersTouched = true; membersHidden = !membersHidden; }}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="9" cy="8" r="3.2" />
-        <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
-        <path d="M16 5.5a3 3 0 0 1 0 5.6" />
-        <path d="M17.5 14.2A5.5 5.5 0 0 1 20.5 19" />
-      </svg>
+      <Users size={17} strokeWidth={1.8} />
     </button>
     <button class="profile-btn" aria-label="Настройки" on:click={openProfile}>
       <Avatar name={user.name} color={user.color} avatar={user.avatar} size={28} radius={9} />
@@ -841,14 +870,11 @@
 <main class="stage" class:hide-members={membersHidden}>
   <aside class="sidebar" class:open={sideOpen}>
     <div class="chan-rail">
+      <div class="chan-rail-head"><span>каналы</span><button class="server-settings-trigger" aria-label="Параметры сервера" title="Настройки сервера" on:click={() => (showServer = true)}><SettingsIcon size={16} /></button></div>
       <div class="chan-group">текст</div>
       {#each textList as channel (channel.id)}
-        <button
-          class="chan"
-          class:active={current?.id === channel.id}
-          on:click={() => openChannel(channel)}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></svg>
+        <button class="chan" class:active={current?.id === channel.id} on:click={() => openChannel(channel)}>
+          <Hash size={16} strokeWidth={1.8} />
           <span class="nm">{channel.name}</span>
           {#if unread.has(channel.id)}<i class="unread"></i>{/if}
         </button>
@@ -862,7 +888,7 @@
           class:live={vs.channelId === channel.id}
           on:click={() => openVoice(channel)}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+          <Volume2 size={16} strokeWidth={1.8} />
           <span class="nm">{channel.name}</span>
           {#if (vs.rosters.get(channel.id) || []).length}
             <i class="live-dot"></i>
@@ -887,7 +913,7 @@
         class="coin add"
         title="Новый сервер"
         aria-label="Новый сервер"
-        on:click={() => { newError = ""; showNewServer = true; }}
+        on:click={openNewServer}
       >+</button>
     </div>
 
@@ -902,40 +928,24 @@
         </div>
         <div class="voice-btns">
           <button class="vbtn" class:off={vs.muted} title="Микрофон" aria-label="Микрофон" on:click={toggleMic}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              {#if vs.muted}
-                <path d="M9 9v3a3 3 0 0 0 5.1 2.1" /><path d="M15 10.5V6a3 3 0 0 0-5.6-1.5" /><path d="M5 11a7 7 0 0 0 10.6 6" /><path d="M19 11a7 7 0 0 1-.8 3.2" /><path d="M12 18v3" /><path d="m3 3 18 18" />
-              {:else}
-                <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" />
-              {/if}
-            </svg>
+            {#if vs.muted}<MicOff size={17} strokeWidth={1.8} />{:else}<Mic size={17} strokeWidth={1.8} />{/if}
           </button>
           <button class="vbtn" class:off={vs.deafened} title="Звук" aria-label="Звук" on:click={toggleDeafen}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="2.5" y="14" width="4" height="6" rx="1.6" /><rect x="17.5" y="14" width="4" height="6" rx="1.6" />
-            </svg>
+            {#if vs.deafened}<HeadphoneOff size={17} strokeWidth={1.8} />{:else}<Headphones size={17} strokeWidth={1.8} />{/if}
           </button>
           {#if vs.channelId}
             <button class="vbtn" class:on={vs.cam} title="Камера" aria-label="Камера" on:click={toggleCam}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2.5" y="6" width="13" height="12" rx="2.5" /><path d="m15.5 12 6-3.5v7l-6-3.5" />
-              </svg>
+              <Video size={17} strokeWidth={1.8} />
             </button>
             <button class="vbtn" class:on={vs.stream} title="Демонстрация" aria-label="Демонстрация" on:click={toggleScreen}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2.5" y="4" width="19" height="13" rx="2.5" /><path d="M9 21h6" /><path d="M12 17v4" />
-              </svg>
+              <MonitorUp size={17} strokeWidth={1.8} />
             </button>
             <button class="vbtn leave" title="Выйти из канала" aria-label="Выйти из канала" on:click={() => voice.leave()}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M15.5 14.5 14 16c-3-1-5-3-6-6l1.5-1.5a1.5 1.5 0 0 0 .2-1.8L8 3.5A1.5 1.5 0 0 0 6.4 2.7H3.3A1.5 1.5 0 0 0 1.8 4.3C2.4 11 7 15.6 13.7 16.2a1.5 1.5 0 0 0 1.6-1.5Z" /><path d="m17 8 5 5" /><path d="m22 8-5 5" />
-              </svg>
+              <PhoneOff size={17} strokeWidth={1.8} />
             </button>
           {:else}
             <button class="vbtn" title="Параметры" aria-label="Параметры" on:click={openProfile}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 11.5 4a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 22.4 11a2 2 0 1 1 0 4Z" />
-              </svg>
+              <SettingsIcon size={17} strokeWidth={1.8} />
             </button>
           {/if}
         </div>
@@ -948,7 +958,7 @@
       <div class="no-space">
         <h2>Сервера пока нет</h2>
         <p>Создай свой или зайди по коду приглашения.</p>
-        <button class="set-copy" on:click={() => { newError = ""; showNewServer = true; }}>Создать или войти</button>
+        <button class="set-copy" on:click={openNewServer}>Создать или войти</button>
       </div>
     {:else if inRoom}
       <Room channel={current} {user} people={members} {vs} {voice} />
@@ -1022,6 +1032,7 @@
             <div id={`m-${message.id}`} class:flash={highlightId === message.id}>
               <Message
                 {message}
+                {customEmoji}
                 me={user}
                 canManage={canManage()}
                 role={roleOf(message.userId)}
@@ -1076,9 +1087,7 @@
           on:change={(e) => { addFiles(e.currentTarget.files); e.currentTarget.value = ""; }}
         />
         <button type="button" class="comp-btn" title="Прикрепить" aria-label="Прикрепить" on:click={() => fileInput?.click()}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7" />
-          </svg>
+          <Paperclip size={18} strokeWidth={1.8} />
         </button>
         <textarea
           bind:this={inputEl}
@@ -1092,12 +1101,14 @@
         ></textarea>
         <div class="emoji-wrap">
           <button type="button" class="comp-btn" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="8.5" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /><path d="M9 9.5h.01M15 9.5h.01" />
-            </svg>
+            <FaceSlightlySmiling size={18} strokeWidth={1.8} />
           </button>
           {#if emojiOpen}
             <div class="emoji-pop">
+              <input class="emoji-search" bind:value={emojiSearch} placeholder="Поиск смайлика" />
+              {#each customEmoji.filter((e) => e.name.includes(emojiSearch.toLowerCase())) as emoji (emoji.id)}
+                <button type="button" title={`:${emoji.name}:`} on:click={() => { text += `:${emoji.name}:`; emojiOpen = false; inputEl?.focus(); }}><img src={fileUrl(emoji.url)} alt={emoji.name} /></button>
+              {/each}
               {#each QUICK_EMOJI as emoji}
                 <button type="button" on:click={() => { text += emoji; emojiOpen = false; inputEl?.focus(); }}>{emoji}</button>
               {/each}
@@ -1108,9 +1119,7 @@
           {#if uploading}
             <span>…</span>
           {:else}
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4 12h15" /><path d="m13 6 6 6-6 6" />
-            </svg>
+            <Send size={18} strokeWidth={1.8} />
           {/if}
         </button>
       </form>
@@ -1181,6 +1190,7 @@
 {#if showSettings}
   <Settings
     {user}
+    {voice}
     on:close={() => (showSettings = false)}
     on:user={(e) => applyUser(e.detail)}
     on:logout={logout}
@@ -1196,20 +1206,27 @@
       </div>
       <div class="new-body">
         <div class="set-field">
-          <label>создать свой</label>
+          <label for="new-space-name">создать свой</label>
           <input
+            id="new-space-name"
             class="set-input"
             bind:value={newName}
             placeholder="Название сервера"
             maxlength="40"
             on:keydown={(e) => e.key === "Enter" && createSpace()}
           />
-          <button class="set-copy" disabled={busy} on:click={createSpace}>Создать сервер</button>
+        <button class="set-copy" disabled={busy || Number(newQuotaGiB) <= 0} on:click={createSpace}>Создать сервер</button>
+        </div>
+        <div class="set-field">
+          <label for="new-space-quota">Место под медиа</label>
+          <div class="quota-row"><input id="new-space-quota" class="set-input" type="number" min="0.0625" step="0.25" bind:value={newQuotaGiB} /><span>ГБ</span></div>
+          {#if diskInfo}<small>Свободно для выделения: {Math.max(0, diskInfo.remaining / 1024 ** 3).toFixed(2)} ГБ (не более 80% диска VPS).</small>{/if}
         </div>
         <div class="new-sep"><span>или</span></div>
         <div class="set-field">
-          <label>войти по коду приглашения</label>
+          <label for="join-code">войти по коду приглашения</label>
           <input
+            id="join-code"
             class="set-input"
             bind:value={joinCode}
             placeholder="Код приглашения"

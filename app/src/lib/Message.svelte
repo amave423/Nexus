@@ -2,7 +2,10 @@
   import Avatar from "./Avatar.svelte";
   import { fileUrl } from "./api.js";
 
+  import { FaceSlightlySmiling, Reply, Pencil, Pin, Trash } from "@lucide/svelte";
+
   export let message;
+  export let customEmoji = [];
   export let me;
   export let canManage = false;
   export let role = null;
@@ -13,8 +16,8 @@
   export let onPin = () => {};
   export let onJump = () => {};
 
-  const EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀"];
-
+  const EMOJI = ["🔥", "😂", "❤️", "👍", "👀", "🎉", "😮", "💀", "🤝", "✅", "🍕", "🚀", "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰", "😘", "😋", "😎", "🤔", "🙄", "😴", "😭", "😡", "🤯", "🥳", "😱", "🙏", "👏", "💪", "💯", "✨", "🌟", "💖", "💔", "💰", "🎁", "🎂", "🎮", "🎧", "⚽", "🏆", "🌈", "☀️", "🌙", "🍎", "🍔", "🍟", "🍰", "☕", "🐱", "🐶", "🦊", "🐸", "🐼", "🦄", "⚡", "👻", "🎃"];
+  $: allEmoji = [...customEmoji.map((e) => `:${e.name}:`), ...EMOJI];
   let editing = false;
   let draft = "";
   let picker = false;
@@ -43,13 +46,22 @@
     onReact(message, emoji);
   }
 
+  const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   function parts(text) {
-    return text.split(/(@[\wА-Яа-яЁё-]+)/g);
+    const names = customEmoji.map((e) => e.name).filter(Boolean);
+    if (!names.length) return text.split(/(@[\wА-Яа-яЁё-]+)/g);
+    const re = new RegExp(`(@[\\wА-Яа-яЁё-]+|:(?:${names.map(escapeRe).join("|")}):)`, "g");
+    return text.split(re);
   }
 
   const isImage = (file) => file.mime.startsWith("image/");
   const isVideo = (file) => file.mime.startsWith("video/");
   const isAudio = (file) => file.mime.startsWith("audio/");
+
+  function emojiUrl(emoji) {
+    return customEmoji.find((item) => `:${item.name}:` === emoji)?.url || null;
+  }
 
   function size(bytes) {
     if (bytes < 1024) return `${bytes} Б`;
@@ -92,7 +104,7 @@
     {:else if message.text}
       <div class="msg-text">
         {#each parts(message.text) as part}
-          {#if part.startsWith("@")}<span class="mention">{part}</span>{:else}{part}{/if}
+          {#if emojiUrl(part)}<img class="custom-emoji" src={fileUrl(emojiUrl(part))} alt={part} title={part} />{:else if part.startsWith("@")}<span class="mention">{part}</span>{:else}{part}{/if}
         {/each}
         {#if message.editedAt}<span class="edited">изменено</span>{/if}
       </div>
@@ -127,7 +139,7 @@
       <div class="reactions">
         {#each message.reactions as reaction (reaction.emoji)}
           <button class="reaction" class:mine={reaction.mine} on:click={() => onReact(message, reaction.emoji)}>
-            <span>{reaction.emoji}</span>
+            <span>{#if emojiUrl(reaction.emoji)}<img class="custom-reaction" src={fileUrl(emojiUrl(reaction.emoji))} alt={reaction.emoji} />{:else}{reaction.emoji}{/if}</span>
             <span class="n">{reaction.count}</span>
           </button>
         {/each}
@@ -137,8 +149,10 @@
 
     {#if picker}
       <div class="picker">
-        {#each EMOJI as emoji}
-          <button on:click={() => react(emoji)}>{emoji}</button>
+        {#each allEmoji as emoji}
+          <button aria-label={emoji} title={emoji} on:click={() => react(emoji)}>
+            {#if emojiUrl(emoji)}<img src={fileUrl(emojiUrl(emoji))} alt={emoji} />{:else}{emoji}{/if}
+          </button>
         {/each}
       </div>
     {/if}
@@ -147,34 +161,24 @@
   {#if !message.deleted}
     <div class="msg-actions">
       <button title="Реакция" aria-label="Реакция" on:click={() => (picker = !picker)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="8.5" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /><path d="M9 9.5h.01M15 9.5h.01" />
-        </svg>
+        <FaceSlightlySmiling size={16} strokeWidth={1.8} />
       </button>
       <button title="Ответить" aria-label="Ответить" on:click={() => onReply(message)}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 7 4 12l5 5" /><path d="M4 12h9a6 6 0 0 1 6 6v1" />
-        </svg>
+        <Reply size={16} strokeWidth={1.8} />
       </button>
       {#if canEdit()}
         <button title="Изменить" aria-label="Изменить" on:click={startEdit}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 20h4L20 8l-4-4L4 16v4Z" />
-          </svg>
+          <Pencil size={16} strokeWidth={1.8} />
         </button>
       {/if}
       {#if canManage}
         <button title={message.pinned ? "Открепить" : "Закрепить"} aria-label="Закрепить" on:click={() => onPin(message)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style={message.pinned ? "color:var(--acid)" : ""}>
-            <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" /><path d="M12 13v7" />
-          </svg>
+          <Pin size={16} strokeWidth={1.8} style={message.pinned ? "color:var(--acid)" : ""} />
         </button>
       {/if}
       {#if canDelete()}
         <button class="danger" title="Удалить" aria-label="Удалить" on:click={() => onDelete(message)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13" />
-          </svg>
+          <Trash size={16} strokeWidth={1.8} />
         </button>
       {/if}
     </div>

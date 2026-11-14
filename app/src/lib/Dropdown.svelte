@@ -1,5 +1,6 @@
 <script>
   import { createEventDispatcher } from "svelte";
+  import { ChevronDown, Check } from "@lucide/svelte";
 
   export let value = "";
   export let options = [];
@@ -25,9 +26,7 @@
 <div class="dd" class:open class:wide>
   <button class="dd-btn" type="button" on:click|stopPropagation={() => (open = !open)}>
     <span>{value || "—"}</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
+    <ChevronDown size={15} strokeWidth={2} />
   </button>
   <div class="dd-list">
     {#each options as option (option)}
@@ -39,9 +38,7 @@
       >
         <span>{option}</span>
         {#if option === value}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m5 13 4 4L19 7" />
-          </svg>
+          <Check size={14} strokeWidth={2.4} />
         {/if}
       </button>
     {/each}

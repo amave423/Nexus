@@ -39,9 +39,12 @@ export function fileUrl(url) {
   return `${SERVER}${url}?token=${encodeURIComponent(token || "")}`;
 }
 
-export async function upload(file, size = {}) {
-  const query = size.width ? `?w=${size.width}&h=${size.height}` : "";
-  const res = await fetch(`${SERVER}/api/upload${query}`, {
+export async function upload(file, size = {}, spaceId = null) {
+  const query = new URLSearchParams();
+  if (size.width) { query.set("w", size.width); query.set("h", size.height); }
+  if (spaceId) query.set("space", spaceId);
+  const suffix = query.size ? `?${query}` : "";
+  const res = await fetch(`${SERVER}/api/upload${suffix}`, {
     method: "POST",
     headers: {
       "content-type": "application/octet-stream",

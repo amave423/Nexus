@@ -1,8 +1,9 @@
 <script>
-  import { createEventDispatcher } from "svelte";
-  import { api } from "./api.js";
+  import { onMount, createEventDispatcher } from "svelte";
+  import { api, fileUrl, upload } from "./api.js";
   import Avatar from "./Avatar.svelte";
   import Dropdown from "./Dropdown.svelte";
+  import { Shield, Hash, FaceSlightlySmiling, UserCog, Users, Link, TriangleExclamationPoint } from "@lucide/svelte";
 
   export let space;
   export let roles = [];
@@ -13,19 +14,20 @@
   const dispatch = createEventDispatcher();
 
   const ICONS = {
-    overview: '<path d="M12 3 4.5 6v6c0 4.5 3.2 7.6 7.5 9 4.3-1.4 7.5-4.5 7.5-9V6L12 3z"/>',
-    roles:
-      '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.2a3.4 3.4 0 0 1 0 6.6M18 20a6.5 6.5 0 0 0-2-4.7"/>',
-    members:
-      '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.2a3.4 3.4 0 0 1 0 6.6M18 20a6.5 6.5 0 0 0-2-4.7"/>',
-    invites:
-      '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>',
-    danger: '<path d="M12 3 2.5 20h19L12 3z"/><path d="M12 9v5M12 17h.01"/>',
+    overview: Shield,
+    channels: Hash,
+    emoji: FaceSlightlySmiling,
+    roles: UserCog,
+    members: Users,
+    invites: Link,
+    danger: TriangleExclamationPoint,
   };
 
   const TABS = [
     { grp: "сервер" },
     { id: "overview", label: "Обзор", icon: "overview" },
+    { id: "channels", label: "Каналы", icon: "channels" },
+    { id: "emoji", label: "Смайлики", icon: "emoji" },
     { id: "roles", label: "Роли", icon: "roles" },
     { id: "members", label: "Участники", icon: "members" },
     { id: "invites", label: "Приглашения", icon: "invites" },
@@ -38,6 +40,8 @@
     manage_roles: "Управление ролями",
     manage_members: "Управление участниками",
     manage_invites: "Приглашения",
+    manage_channels: "Управление каналами",
+    manage_emoji: "Управление смайликами",
     send_messages: "Писать сообщения",
   };
 
@@ -64,7 +68,18 @@
   let freshInvite = "";
 
   let confirmName = "";
+  let channels = [];
+  let disk = null;
+  let emoji = [];
+  let channelDraft = { name: "", type: "text" };
+  let emojiName = "";
+  let emojiFile = null;
+  let quotaGiB = "1";
+  let settingsBusy = false;
+  let settingsError = "";
+  let uploadEmojiInput;
 
+  const fmtBytes = (n) => n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} ГБ` : `${Math.round(n / 1024 ** 2)} МБ`;
   const can = (perm) => permissions.includes(perm);
   const countOf = (roleId) => members.filter((m) => m.roles.some((r) => r.id === roleId)).length;
 
@@ -156,6 +171,79 @@
     dispatch("members", members);
   }
 
+  async function loadServerTools() {
+    settingsError = "";
+    try {
+      const [state, diskData, emojiData] = await Promise.all([
+        api(`/api/spaces/${space.id}/state`), api("/api/disk"), api(`/api/spaces/${space.id}/emoji`)
+      ]);
+      channels = state.channels;
+      disk = diskData;
+      emoji = emojiData.emoji;
+      quotaGiB = (Number(space.mediaQuota || 1073741824) / 1024 ** 3).toFixed(2);
+    } catch (e) { settingsError = e.message; }
+  }
+
+  async function createChannel() {
+    settingsBusy = true;
+    settingsError = "";
+    try {
+      const data = await api(`/api/spaces/${space.id}/channels`, { method: "POST", body: channelDraft });
+      channels = [...channels, data.channel];
+      channelDraft = { name: "", type: "text" };
+    } catch (e) { settingsError = e.message; }
+    finally { settingsBusy = false; }
+  }
+
+  async function renameChannel(channel) {
+    const name = window.prompt("Новое название канала", channel.name);
+    if (name === null || !name.trim()) return;
+    try {
+      const data = await api(`/api/channels/${channel.id}`, { method: "PATCH", body: { name: name.trim() } });
+      channels = channels.map((c) => c.id === channel.id ? data.channel : c);
+    } catch (e) { settingsError = e.message; }
+  }
+
+  async function deleteChannel(channel) {
+    if (!window.confirm(`Удалить канал «${channel.name}» и его сообщения?`)) return;
+    try {
+      await api(`/api/channels/${channel.id}`, { method: "DELETE" });
+      channels = channels.filter((c) => c.id !== channel.id);
+    } catch (e) { settingsError = e.code === "last_channel" ? "Нельзя удалить последний канал" : e.message; }
+  }
+
+  async function saveQuota() {
+    settingsBusy = true;
+    settingsError = "";
+    try {
+      const data = await api(`/api/spaces/${space.id}`, { method: "PATCH", body: { quotaBytes: Math.round(Number(quotaGiB) * 1024 ** 3) } });
+      space = data.space;
+      dispatch("space", space);
+      await loadServerTools();
+    } catch (e) { settingsError = e.code === "quota_over_limit" ? "Не хватает свободного места на диске сервера" : e.message; }
+    finally { settingsBusy = false; }
+  }
+
+  async function addCustomEmoji() {
+    if (!emojiFile || !emojiName.trim()) return;
+    settingsBusy = true;
+    settingsError = "";
+    try {
+      if (!emojiFile.type.startsWith("image/") || emojiFile.size > 256 * 1024) throw new Error("Нужна картинка до 256 КБ");
+      const file = await upload(emojiFile, {}, space.id);
+      const data = await api(`/api/spaces/${space.id}/emoji`, { method: "POST", body: { name: emojiName, file: file.url.split("/").pop() } });
+      emoji = [...emoji, data.emoji];
+      emojiName = "";
+      emojiFile = null;
+    } catch (e) { settingsError = e.message; }
+    finally { settingsBusy = false; }
+  }
+
+  async function deleteEmoji(item) {
+    try { await api(`/api/emoji/${item.id}`, { method: "DELETE" }); emoji = emoji.filter((e) => e.id !== item.id); }
+    catch (e) { settingsError = e.message; }
+  }
+
   async function loadInvites() {
     const data = await api(`/api/spaces/${space.id}/invites`);
     invites = data.invites;
@@ -192,8 +280,11 @@
     dispatch("deleted");
   }
 
+  onMount(loadServerTools);
+
   function openTab(id) {
     tab = id;
+    if (["channels", "emoji", "overview"].includes(id)) loadServerTools();
     if (id === "invites" && !invitesLoaded) loadInvites();
   }
 
@@ -209,7 +300,7 @@
           <span class="grp">{item.grp}</span>
         {:else}
           <button class:active={tab === item.id} class:danger={item.id === "danger"} on:click={() => openTab(item.id)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html ICONS[item.icon] || ""}</svg>
+            <svelte:component this={ICONS[item.icon]} size={16} strokeWidth={1.8} />
             <span>{item.label}</span>
           </button>
         {/if}
@@ -223,6 +314,45 @@
       </header>
 
       <div class="set-pane">
+        {#if tab === "channels"}
+          <div class="set-row">
+            <div class="set-row-t"><b>Каналы</b><span>Создание, переименование и удаление текстовых и голосовых каналов</span></div>
+            {#if can("manage_channels")}
+              <div class="channel-new">
+                <input class="set-input" bind:value={channelDraft.name} placeholder="название канала" maxlength="40" />
+                <select class="set-input" bind:value={channelDraft.type}><option value="text">Текстовый</option><option value="voice">Голосовой</option></select>
+                <button class="set-copy" disabled={settingsBusy || !channelDraft.name.trim()} on:click={createChannel}>Создать</button>
+              </div>
+            {/if}
+          </div>
+          {#each channels as channel (channel.id)}
+            <div class="set-role channel-item">
+              <span class="nm">{channel.type === "voice" ? "◖" : "#"} {channel.name}</span>
+              <span class="cnt">{channel.type === "voice" ? "голосовой" : "текстовый"}</span>
+              {#if can("manage_channels")}<button class="mini" on:click={() => renameChannel(channel)}>Изменить</button><button class="mini danger" on:click={() => deleteChannel(channel)}>Удалить</button>{/if}
+            </div>
+          {/each}
+          {#if settingsError}<div class="error">{settingsError}</div>{/if}
+        {/if}
+
+        {#if tab === "emoji"}
+          <div class="set-row"><div class="set-row-t"><b>Смайлики сервера</b><span>Пользовательские изображения, максимум 256 КБ на файл</span></div></div>
+          {#if can("manage_emoji")}
+            <div class="emoji-admin">
+              <input class="set-input" bind:value={emojiName} placeholder="имя (латиница, цифры, _)" maxlength="32" />
+              <input bind:this={uploadEmojiInput} type="file" accept="image/*" on:change={(e) => (emojiFile = e.currentTarget.files?.[0] || null)} />
+              <button class="set-copy" disabled={settingsBusy || !emojiName.trim() || !emojiFile} on:click={addCustomEmoji}>Добавить</button>
+            </div>
+          {/if}
+          <div class="emoji-admin-list">
+            {#each emoji as item (item.id)}
+              <div class="emoji-admin-item"><img src={fileUrl(item.url)} alt={item.name} /><span>:{item.name}:</span>{#if can("manage_emoji")}<button class="mini danger" on:click={() => deleteEmoji(item)}>Удалить</button>{/if}</div>
+            {/each}
+          </div>
+          {#if !emoji.length && !settingsError}<div class="empty">Пользовательских смайликов пока нет</div>{/if}
+          {#if settingsError}<div class="error">{settingsError}</div>{/if}
+        {/if}
+
         {#if tab === "overview"}
           <div class="set-profile">
             <span class="set-avatar" style="background:linear-gradient(150deg,var(--acid),color-mix(in srgb,var(--acid) 55%,#000))">
@@ -241,6 +371,12 @@
             <label for="srvDesc">Описание</label>
             <textarea id="srvDesc" class="set-input" bind:value={description} maxlength="280" disabled={!can("manage_server")}></textarea>
           </div>
+          <div class="set-field">
+            <label for="space-quota">Квота медиа на сервер</label>
+            <div class="quota-row"><input id="space-quota" class="set-input" type="number" min="0.0625" step="0.25" bind:value={quotaGiB} disabled={!can("manage_server")} /><span>ГБ</span><button class="set-copy" disabled={!can("manage_server") || settingsBusy} on:click={saveQuota}>Сохранить квоту</button></div>
+            {#if disk}<small>Выделено {fmtBytes(disk.allocated)} из {fmtBytes(disk.allocatable)} доступных на VPS. При заполнении удаляются самые старые медиа только этого сервера. Квота этого сервера: {fmtBytes(space.mediaQuota || 1073741824)}.</small>{/if}
+          </div>
+          {#if settingsError}<div class="error">{settingsError}</div>{/if}
           {#if error}<div class="error">{error}</div>{/if}
           {#if can("manage_server")}
             <div class="set-actions">
@@ -385,7 +521,7 @@
               <b>Удалить сервер</b>
               <span>Все каналы, сообщения и роли исчезнут. Отменить это будет нельзя.</span>
               <input class="set-input" bind:value={confirmName} placeholder="введи {space.name} для подтверждения" />
-              <button disabled={confirmName !== space.name} on:click={deleteSpace}>Удалить {space.name}</button>
+              <button class="danger-btn" disabled={confirmName !== space.name} on:click={deleteSpace}>Удалить {space.name}</button>
             </div>
           {:else}
             <div class="empty">Удалить сервер может только владелец</div>

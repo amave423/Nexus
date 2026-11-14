@@ -7,24 +7,20 @@
   import { toast } from "./toasts.js";
   import Avatar from "./Avatar.svelte";
   import Dropdown from "./Dropdown.svelte";
+  import { UserRound, Mic, Bell, FaceSlightlySmiling, Keyboard, RefreshCw } from "@lucide/svelte";
 
   export let user;
+  export let voice = null;
 
   const dispatch = createEventDispatcher();
 
   const ICONS = {
-    profile:
-      '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16.5 5.2a3.4 3.4 0 0 1 0 6.6M18 20a6.5 6.5 0 0 0-2-4.7"/>',
-    voice:
-      '<rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
-    notify:
-      '<path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M10.5 20a2 2 0 0 0 3 0"/>',
-    look:
-      '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="9.5" r="1.2"/><circle cx="15" cy="9.5" r="1.2"/><circle cx="9.5" cy="15" r="1.2"/>',
-    keys:
-      '<rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
-    update:
-      '<path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/>',
+    profile: UserRound,
+    voice: Mic,
+    notify: Bell,
+    look: FaceSlightlySmiling,
+    keys: Keyboard,
+    update: RefreshCw,
   };
 
   const TABS = [
@@ -64,6 +60,9 @@
   let micError = false;
   let monitorEl = null;
   let monitoring = false;
+  let meterCtx = null;
+  let borrowedTrack = null;
+  let borrowedWasEnabled = true;
 
   let capturing = null;
   let appInfo = { version: "—", packaged: false };
@@ -184,30 +183,42 @@
     micError = false;
     micState = "запрашиваю доступ…";
     try {
-      micStream = await navigator.mediaDevices.getUserMedia(constraints());
-      let track = micStream.getAudioTracks()[0];
-      let noiseFailed = false;
-      if (P.noiseMode === "rnnoise") {
-        micState = "загружаю шумодав…";
-        try {
-          micChain = await buildMicTrack(micStream, { level: P.micLevel, mode: "rnnoise" });
-          track = micChain.track;
-          noiseFailed = !!micChain.failed;
-        } catch {
-          micChain = null;
-          noiseFailed = true;
+      let track = null;
+      const shared = voice?.micTrack?.() || null;
+      if (shared) {
+        borrowedTrack = shared;
+        borrowedWasEnabled = shared.enabled;
+        shared.enabled = true;
+        track = shared;
+        micState = "говори — слышишь себя так же, как слышат в комнате";
+      } else {
+        micStream = await navigator.mediaDevices.getUserMedia(constraints());
+        track = micStream.getAudioTracks()[0];
+        if (!track || track.readyState !== "live") throw new Error("Mic track is not live");
+        let noiseFailed = false;
+        if (P.noiseMode === "rnnoise") {
+          micState = "загружаю шумодав…";
+          try {
+            micChain = await buildMicTrack(micStream, { level: P.micLevel, mode: "rnnoise" });
+            track = micChain.track;
+            noiseFailed = !!micChain.failed;
+          } catch {
+            micChain = null;
+            noiseFailed = true;
+          }
         }
+        micState = noiseFailed
+          ? "шумодав не загрузился — работает браузерный"
+          : P.noiseMode === "rnnoise"
+            ? "говори — слышишь себя так же, как слышат в комнате"
+            : "говори — полоски должны шевелиться";
       }
       const ac = new (window.AudioContext || window.webkitAudioContext)();
+      meterCtx = ac;
       const source = ac.createMediaStreamSource(new MediaStream([track]));
       analyser = ac.createAnalyser();
       analyser.fftSize = 128;
       source.connect(analyser);
-      micState = noiseFailed
-        ? "шумодав не загрузился — работает браузерный"
-        : P.noiseMode === "rnnoise"
-          ? "говори — слышишь себя так же, как слышат в комнате"
-          : "говори — полоски должны шевелиться";
       const data = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
         analyser.getByteFrequencyData(data);
@@ -235,8 +246,10 @@
     monitoring = false;
   }
 
+  const liveTrack = () => borrowedTrack || micChain?.track || micStream?.getAudioTracks()[0] || null;
+
   function startMonitor() {
-    const track = micChain?.track || micStream?.getAudioTracks()[0];
+    const track = liveTrack();
     if (!track) {
       monitoring = false;
       return false;
@@ -260,19 +273,30 @@
   }
 
   async function testMic() {
+    const wasMonitoring = monitoring;
+    if (wasMonitoring) stopMonitor();
     await startMeter();
-    if (micStream) startMonitor();
+    if (micStream && wasMonitoring) startMonitor();
   }
 
   function stopMeter() {
     stopMonitor();
     cancelAnimationFrame(raf);
     raf = 0;
-    micStream?.getTracks().forEach((t) => t.stop());
-    micChain?.dispose();
-    micChain = null;
-    micStream = null;
+    if (borrowedTrack) {
+      borrowedTrack.enabled = borrowedWasEnabled;
+      borrowedTrack = null;
+    } else {
+      micStream?.getTracks().forEach((t) => t.stop());
+      micStream = null;
+      micChain?.dispose();
+      micChain = null;
+    }
     analyser = null;
+    if (meterCtx) {
+      meterCtx.close().catch(() => {});
+      meterCtx = null;
+    }
     bars = new Array(28).fill(0.06);
   }
 
@@ -335,7 +359,7 @@
           <span class="grp">{item.grp}</span>
         {:else}
           <button class:active={tab === item.id} on:click={() => (tab = item.id)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{@html ICONS[item.icon] || ""}</svg>
+            <svelte:component this={ICONS[item.icon]} size={16} strokeWidth={1.8} />
             <span>{item.label}</span>
           </button>
         {/if}
