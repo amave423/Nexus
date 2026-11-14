@@ -142,6 +142,7 @@ const COLUMNS = [
   ["messages", "reply_to", "INTEGER"],
   ["messages", "edited_at", "INTEGER"],
   ["messages", "deleted", "INTEGER NOT NULL DEFAULT 0"],
+  ["media", "mime", "TEXT"],
 ];
 
 function migrate(db) {

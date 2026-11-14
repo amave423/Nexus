@@ -72,6 +72,68 @@ test("disk quotas: per-space allocation and oldest media reclaimed first", async
   await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
 });
 
+test("uploads: any file type keeps its extension, attaches to a message and is served", async () => {
+  const c = await setup();
+  const send = (name, type) =>
+    c.app.inject({ method: "POST", url: `/api/upload?space=${c.space.id}`, headers: { ...auth(c.owner.token), "content-type": "application/octet-stream", "x-file-type": type, "x-file-name": encodeURIComponent(name) }, payload: Buffer.from("hello " + name) });
+
+  const txt = await send("заметка.txt", "text/plain");
+  assert.equal(txt.statusCode, 200);
+  assert.match(txt.json().url, /\.txt$/);
+  assert.equal(txt.json().mime, "text/plain");
+
+  const docx = await send("договор.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  assert.equal(docx.statusCode, 200);
+  assert.match(docx.json().url, /\.docx$/);
+
+  const unknown = await send("проект.psd", "");
+  assert.equal(unknown.statusCode, 200);
+  assert.match(unknown.json().url, /\.psd$/);
+  assert.equal(unknown.json().mime, "application/octet-stream");
+
+  const channel = c.channels.find((x) => x.type === "text");
+  const posted = await c.app.inject({ method: "POST", url: `/api/channels/${channel.id}/messages`, headers: auth(c.owner.token), payload: { text: "", attachments: [txt.json(), docx.json(), unknown.json()] } });
+  assert.equal(posted.statusCode, 200);
+  const attachments = posted.json().message.attachments;
+  assert.equal(attachments.length, 3);
+  assert.deepEqual(attachments.map((a) => a.name), ["заметка.txt", "договор.docx", "проект.psd"]);
+
+  const served = await c.app.inject({ method: "GET", url: `${txt.json().url}?token=${c.owner.token}` });
+  assert.equal(served.statusCode, 200);
+  assert.equal(served.headers["content-type"], "text/plain");
+  assert.equal(served.body, "hello заметка.txt");
+
+  const docxServed = await c.app.inject({ method: "GET", url: `${docx.json().url}?token=${c.owner.token}` });
+  assert.equal(docxServed.headers["content-type"], "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+
+  await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
+});
+
+test("uploads: a broken attachment link is refused instead of sending an empty message", async () => {
+  const c = await setup();
+  const channel = c.channels.find((x) => x.type === "text");
+  const before = c.db.prepare("SELECT COUNT(*) AS n FROM messages").get().n;
+  const bad = await c.app.inject({ method: "POST", url: `/api/channels/${channel.id}/messages`, headers: auth(c.owner.token), payload: { text: "", attachments: [{ url: "https://evil/x.txt", name: "x.txt", mime: "text/plain" }] } });
+  assert.equal(bad.statusCode, 400);
+  assert.equal(bad.json().error, "bad_file");
+  assert.equal(c.db.prepare("SELECT COUNT(*) AS n FROM messages").get().n, before);
+  const empty = await c.app.inject({ method: "POST", url: `/api/channels/${channel.id}/messages`, headers: auth(c.owner.token), payload: { text: "" } });
+  assert.equal(empty.statusCode, 400);
+  assert.equal(empty.json().error, "empty");
+  await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
+});
+
+test("uploads: an unsafe type is served as a download, not rendered", async () => {
+  const c = await setup();
+  const page = await c.app.inject({ method: "POST", url: `/api/upload?space=${c.space.id}`, headers: { ...auth(c.owner.token), "content-type": "application/octet-stream", "x-file-type": "text/html", "x-file-name": "page.html" }, payload: Buffer.from("<script>alert(1)</script>") });
+  assert.equal(page.statusCode, 200);
+  const served = await c.app.inject({ method: "GET", url: `${page.json().url}?token=${c.owner.token}` });
+  assert.equal(served.statusCode, 200);
+  assert.equal(served.headers["content-type"], "application/octet-stream");
+  assert.equal(served.headers["x-content-type-options"], "nosniff");
+  await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
+});
+
 test("custom emoji: member can view but cannot manage; owner registers only own-space media", async () => {
   const c = await setup();
   const file = await upload(c.app,c.owner.token,c.space.id,1024,"face.png");

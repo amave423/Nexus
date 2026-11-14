@@ -58,8 +58,8 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const cleanupFilesForChannel = (channelId) => {
     const rows = db.prepare("SELECT m.id AS messageId,a.url FROM messages m JOIN attachments a ON a.message_id=m.id WHERE m.channel_id=?").all(channelId);
     for (const row of rows) {
-      const file = row.url.match(/^\/api\/files\/([a-z0-9]+\.[a-z0-9]+)$/i)?.[1];
-      if (!file) continue;
+      const file = row.url.split("/").pop();
+      if (!file || !/^[a-z0-9]+(\.[a-z0-9]{1,10})?$/i.test(file)) continue;
       try { unlinkSync(join(filesDir, file)); } catch {}
       db.prepare("DELETE FROM media WHERE file=?").run(file);
       db.prepare("DELETE FROM custom_emoji WHERE file=?").run(file);
@@ -653,8 +653,9 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
       return reply.code(403).send({ error: "forbidden" });
     const body = req.body || {};
     const text = String(body.text || "").trim();
-    const files = Array.isArray(body.attachments) ? body.attachments.slice(0, 10) : [];
-    if (!text && !files.length) return reply.code(400).send({ error: "empty" });
+    const incoming = Array.isArray(body.attachments) ? body.attachments.slice(0, 10) : [];
+    const files = incoming.filter((file) => FILE_URL.test(String(file?.url || "")));
+    if (!text && !files.length) return reply.code(400).send({ error: incoming.length ? "bad_file" : "empty" });
     if (text.length > 4000) return reply.code(400).send({ error: "too_long" });
 
     let replyTo = null;
@@ -678,18 +679,17 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     );
     for (const file of files) {
       const url = String(file.url || "");
-      if (!/^\/api\/files\/[a-z0-9]+\.[a-z0-9]+$/i.test(url)) continue;
+      const storedName = url.split("/").pop();
       insFile.run(
         messageId,
         url,
         String(file.name || "файл").slice(0, 120),
-        String(file.mime || "application/octet-stream").slice(0, 80),
+        String(safeMime(file.mime) || "application/octet-stream").slice(0, 80),
         Number(file.size) || 0,
         Number(file.width) || null,
         Number(file.height) || null
       );
-      const storedName = url.match(/^\/api\/files\/([a-z0-9]+\.[a-z0-9]+)$/i)?.[1];
-      if (storedName) db.prepare("UPDATE media SET space_id=?, message_id=? WHERE file=?").run(spaceId, messageId, storedName);
+      db.prepare("UPDATE media SET space_id=?, message_id=? WHERE file=?").run(spaceId, messageId, storedName);
     }
 
     const message = messageRow(messageId, req.user.id);
@@ -810,43 +810,78 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
 
   /* ---------- files ---------- */
 
+  const FILE_URL = /^\/api\/files\/[a-z0-9]+(\.[a-z0-9]{1,10})?$/i;
+  const STORED_NAME = /^[a-z0-9]+(\.[a-z0-9]{1,10})?$/i;
+
   const EXT = {
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/webp": "webp",
     "image/gif": "gif",
     "image/avif": "avif",
+    "image/heic": "heic",
     "video/mp4": "mp4",
     "video/webm": "webm",
     "video/quicktime": "mov",
+    "video/x-matroska": "mkv",
     "audio/mpeg": "mp3",
     "audio/ogg": "ogg",
     "audio/wav": "wav",
+    "audio/mp4": "m4a",
     "application/pdf": "pdf",
     "text/plain": "txt",
+    "text/csv": "csv",
+    "application/json": "json",
     "application/zip": "zip",
     "application/x-rar-compressed": "rar",
+    "application/vnd.rar": "rar",
     "application/x-7z-compressed": "7z",
+    "application/gzip": "gz",
+    "application/x-tar": "tar",
     "application/msword": "doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.ms-excel": "xls",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "application/octet-stream": "bin",
+  };
+
+  const TYPE = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
+    avif: "image/avif", heic: "image/heic", heif: "image/heic", bmp: "image/bmp",
+    mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mkv: "video/x-matroska", avi: "video/x-msvideo",
+    mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav", m4a: "audio/mp4", flac: "audio/flac",
+    pdf: "application/pdf", txt: "text/plain", csv: "text/csv", json: "application/json", md: "text/markdown",
+    zip: "application/zip", rar: "application/vnd.rar", "7z": "application/x-7z-compressed", gz: "application/gzip", tar: "application/x-tar",
+    doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  };
+
+  const UNSAFE = /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml|text\/javascript|application\/javascript|application\/ecmascript)$/;
+  const safeMime = (value) => {
+    const mime = String(value || "").toLowerCase().trim();
+    return /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mime) ? mime.slice(0, 80) : "";
+  };
+  const extensionOf = (name) => {
+    const text = String(name || "");
+    if (!text.includes(".")) return "";
+    return text.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 10);
   };
 
   app.post("/api/upload", async (req, reply) => {
     if (!auth(req, reply)) return;
     const buffer = Buffer.isBuffer(req.body) ? req.body : null;
     if (!buffer || !buffer.length) return reply.code(400).send({ error: "no_file" });
-    const mime = String(req.headers["x-file-type"] || "application/octet-stream");
     if (buffer.length > 12 * 1024 * 1024) return reply.code(413).send({ error: "too_big" });
     let original = "файл";
     try { original = decodeURIComponent(String(req.headers["x-file-name"] || "файл")); } catch {}
-    const fromName = original.includes(".") ? original.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) : "";
-    const ext = EXT[mime] || fromName || "bin";
+    const declared = safeMime(req.headers["x-file-type"]);
+    const ext = extensionOf(original) || EXT[declared] || "bin";
+    const mime = declared || TYPE[ext] || "application/octet-stream";
     const requestedSpace = Number(req.query.space) || null;
     const size = buffer.length;
-    const summary = diskSummary();
     if (size > remainingGlobal()) return reply.code(507).send({ error: "disk_limit" });
     if (requestedSpace) {
       if (!baseRole(requestedSpace, req.user.id)) return reply.code(403).send({ error: "forbidden" });
@@ -857,24 +892,25 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     }
     const name = `${randomBytes(12).toString("hex")}.${ext}`;
     writeFileSync(join(filesDir, name), buffer);
-    db.prepare("INSERT INTO media (file,space_id,size,created_at) VALUES (?,?,?,?)").run(name, requestedSpace, size, Date.now());
+    db.prepare("INSERT INTO media (file,space_id,size,created_at,mime) VALUES (?,?,?,?,?)").run(name, requestedSpace, size, Date.now(), mime);
     return { url: `/api/files/${name}`, name: original.slice(0, 120), mime, size, width: Number(req.query.w) || null, height: Number(req.query.h) || null };
   });
 
   app.get("/api/files/:name", async (req, reply) => {
     const token = req.query.token || (req.headers.authorization || "").replace(/^Bearer /, "");
-    if (!userByToken(token)) return reply.code(401).send({ error: "unauthorized" });
+    const user = userByToken(token);
+    if (!user) return reply.code(401).send({ error: "unauthorized" });
     const storedName = String(req.params.name || "");
-    if (!/^[a-z0-9]+\.[a-z0-9]+$/i.test(storedName)) return reply.code(400).send({ error: "bad_name" });
-    const media = db.prepare("SELECT space_id AS spaceId FROM media WHERE file=?").get(storedName);
-    if (media?.spaceId && !baseRole(media.spaceId, userByToken(token).id)) return reply.code(403).send({ error: "forbidden" });
-    const name = storedName;
-    const path = join(filesDir, name);
+    if (!STORED_NAME.test(storedName)) return reply.code(400).send({ error: "bad_name" });
+    const media = db.prepare("SELECT space_id AS spaceId, mime FROM media WHERE file=?").get(storedName);
+    if (media?.spaceId && !baseRole(media.spaceId, user.id)) return reply.code(403).send({ error: "forbidden" });
+    const path = join(filesDir, storedName);
     if (!existsSync(path)) return reply.code(404).send({ error: "not_found" });
-    const ext = name.split(".").pop().toLowerCase();
-    const type =
-      Object.entries(EXT).find(([, value]) => value === ext)?.[0] || "application/octet-stream";
+    const ext = storedName.split(".").pop().toLowerCase();
+    const known = safeMime(media?.mime) || TYPE[ext] || "application/octet-stream";
+    const type = UNSAFE.test(known) ? "application/octet-stream" : known;
     reply.header("content-type", type);
+    reply.header("x-content-type-options", "nosniff");
     reply.header("cache-control", "private, max-age=31536000, immutable");
     return reply.send(createReadStream(path));
   });
