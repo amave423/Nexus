@@ -64,6 +64,8 @@
   let meterCtx = null;
   let borrowedTrack = null;
   let borrowedWasEnabled = true;
+  let testing = false;
+  let testInVoice = false;
 
   let capturing = null;
   let appInfo = { version: "—", packaged: false };
@@ -179,19 +181,41 @@
     };
   }
 
+  function clearMeter() {
+    meterLive = false;
+    stopMonitor();
+    cancelAnimationFrame(raf);
+    raf = 0;
+    if (borrowedTrack) {
+      borrowedTrack.enabled = borrowedWasEnabled;
+      borrowedTrack = null;
+    } else {
+      micStream?.getTracks().forEach((t) => t.stop());
+      micStream = null;
+      micChain?.dispose();
+      micChain = null;
+    }
+    analyser = null;
+    if (meterCtx) {
+      meterCtx.close().catch(() => {});
+      meterCtx = null;
+    }
+    bars = new Array(28).fill(0.06);
+  }
+
   async function startMeter() {
-    stopMeter();
+    clearMeter();
     micError = false;
     micState = "запрашиваю доступ…";
     try {
       let track = null;
-      const shared = voice?.micTrack?.() || null;
+      const shared = testInVoice ? voice?.micTrack?.() || null : null;
       if (shared) {
         borrowedTrack = shared;
         borrowedWasEnabled = shared.enabled;
         shared.enabled = true;
         track = shared;
-        micState = "говори — слышишь себя так же, как слышат в комнате";
+        micState = "говори — в канале тебя сейчас не слышно";
       } else {
         micStream = await navigator.mediaDevices.getUserMedia(constraints());
         track = micStream.getAudioTracks()[0];
@@ -233,9 +257,11 @@
       tick();
       listDevices();
       meterLive = true;
+      return true;
     } catch (e) {
       micError = true;
       micState = e.name === "NotAllowedError" ? "доступ к микрофону запрещён" : "микрофон не найден";
+      return false;
     }
   }
 
@@ -268,39 +294,49 @@
     return true;
   }
 
-  function toggleMonitor() {
-    if (monitoring) stopMonitor();
-    else if (micStream) startMonitor();
-    else testMic();
+  async function startTest() {
+    testing = true;
+    micError = false;
+    testInVoice = !!(voice?.state?.channelId && voice?.state?.joined);
+    if (testInVoice) {
+      const held = await voice.setTestMode(true).catch(() => false);
+      if (!held) testInVoice = false;
+    }
+    const ok = await startMeter();
+    if (!ok) {
+      await stopTest();
+      return;
+    }
+    if (!startMonitor()) {
+      micState = "микрофон не найден";
+      micError = true;
+      await stopTest();
+      return;
+    }
+    micState = testInVoice
+      ? "говори — слышишь себя так же, как слышат в комнате; в канале тебя сейчас не слышно"
+      : "говори — слышишь себя так же, как слышат в комнате";
   }
 
-  async function testMic() {
-    const wasMonitoring = monitoring;
-    if (wasMonitoring) stopMonitor();
-    await startMeter();
-    if (micStream && wasMonitoring) startMonitor();
+  async function stopTest() {
+    testing = false;
+    clearMeter();
+    if (testInVoice) {
+      testInVoice = false;
+      await voice.setTestMode(false).catch(() => {});
+    }
+    micState = "микрофон не запущен";
   }
+
+  const toggleTest = () => (testing ? stopTest() : startTest());
 
   function stopMeter() {
-    meterLive = false;
-    stopMonitor();
-    cancelAnimationFrame(raf);
-    raf = 0;
-    if (borrowedTrack) {
-      borrowedTrack.enabled = borrowedWasEnabled;
-      borrowedTrack = null;
-    } else {
-      micStream?.getTracks().forEach((t) => t.stop());
-      micStream = null;
-      micChain?.dispose();
-      micChain = null;
+    testing = false;
+    clearMeter();
+    if (testInVoice) {
+      testInVoice = false;
+      voice?.setTestMode?.(false).catch(() => {});
     }
-    analyser = null;
-    if (meterCtx) {
-      meterCtx.close().catch(() => {});
-      meterCtx = null;
-    }
-    bars = new Array(28).fill(0.06);
   }
 
   function testNotification() {
@@ -458,7 +494,7 @@
           <div class="vtest" class:live={meterLive}>
             <div class="vtest-head">
               <b>Проверка микрофона</b>
-              <span>{monitoring ? "наушники повторяют твой голос вживую" : "послушай себя в наушниках до входа в комнату"}</span>
+              <span>{testing ? (testInVoice ? "слышишь только себя, канал на паузе" : "слышишь себя в наушниках") : "нажми «Проверить» и послушай себя"}</span>
             </div>
             <div class="vtest-meter">
               {#each bars as level, i (i)}
@@ -467,9 +503,8 @@
             </div>
             <div class="vtest-status" class:err={micError}>{micState}</div>
             <div class="vtest-actions">
-              <button class="set-copy" on:click={testMic}>{meterLive ? "Перезапустить" : "Проверить"}</button>
-              <button class="ghost-btn" class:on={monitoring} on:click={toggleMonitor} disabled={!meterLive && !monitoring}>
-                {monitoring ? "Остановить" : "Слушать себя"}
+              <button class="set-copy" class:on={testing} on:click={toggleTest}>
+                {testing ? "Остановить" : "Проверить"}
               </button>
             </div>
           </div>

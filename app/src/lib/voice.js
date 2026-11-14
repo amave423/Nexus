@@ -42,6 +42,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const sinks = new Map();
   const volumes = new Map();
   const silent = new Set();
+  let testHold = false;
+  let heldEnabled = [];
 
   const state = {
     channelId: null,
@@ -123,7 +125,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     const el = sinks.get(userId);
     if (!el) return;
     el.volume = volumes.has(userId) ? volumes.get(userId) : 1;
-    el.muted = state.deafened || silent.has(userId);
+    el.muted = state.deafened || testHold || silent.has(userId);
   }
 
   function setUserVolume(userId, value) {
@@ -588,6 +590,43 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     if (changed && !silent) soundCue(muted ? "mute" : "unmute");
   }
 
+  const micTracks = () => {
+    const list = [
+      ...(micStream?.getAudioTracks() || []),
+      ...(micChain?.track ? [micChain.track] : []),
+      ...(micProducer?.track ? [micProducer.track] : []),
+    ];
+    return [...new Set(list)];
+  };
+
+  async function setTestMode(on) {
+    if (!state.channelId || !state.joined) return false;
+    if (on) {
+      if (!micProducer) return false;
+      heldEnabled = micTracks().map((track) => track.enabled);
+      testHold = true;
+      for (const track of micTracks()) track.enabled = true;
+      await request("voice.pauseProducer", { producerId: micProducer.id, paused: true }).catch(
+        () => {}
+      );
+    } else {
+      testHold = false;
+      micTracks().forEach((track, index) => {
+        if (index < heldEnabled.length) track.enabled = heldEnabled[index];
+      });
+      heldEnabled = [];
+      if (micProducer) {
+        await request("voice.pauseProducer", {
+          producerId: micProducer.id,
+          paused: state.muted,
+        }).catch(() => {});
+      }
+    }
+    for (const userId of sinks.keys()) applyUserAudio(userId);
+    publish();
+    return true;
+  }
+
   async function setDeafened(deafened, silent = false) {
     const changed = state.deafened !== deafened;
     state.deafened = deafened;
@@ -824,6 +863,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     toggleScreen,
     setMuted,
     setDeafened,
+    setTestMode,
     setUserVolume,
     setUserMuted,
     requestMic,
