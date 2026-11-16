@@ -12,6 +12,7 @@ const {
   net,
   session,
   desktopCapturer,
+  Notification,
 } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
