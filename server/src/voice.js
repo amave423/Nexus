@@ -151,6 +151,17 @@ export class Voice {
     });
   }
 
+  rosters(spaceIds) {
+    const wanted = new Set(spaceIds);
+    const out = [];
+    for (const [channelId] of this.channels) {
+      if (!wanted.has(this.spaceOfChannel(channelId))) continue;
+      const members = this.members(channelId);
+      if (members.length) out.push({ channelId, members });
+    }
+    return out;
+  }
+
   members(channelId) {
     const channel = this.channels.get(channelId);
     if (!channel) return [];

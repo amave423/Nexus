@@ -371,3 +371,42 @@ test("файлы: тяжёлый архив и имя с неподдержив�
 
   await app.close();
 });
+
+test("логин не меняется вместе с именем, вход только по логину", async () => {
+  const { app } = makeApp();
+  const invite = app.ensureInvite();
+  const reg = await app.inject({
+    method: "POST",
+    url: "/api/auth/register",
+    payload: { invite, login: "kotak", name: "котакс", code: "secret123" },
+  });
+  assert.equal(reg.statusCode, 200);
+  const token = reg.json().token;
+  assert.equal(reg.json().user.login, "kotak");
+
+  const patched = await app.inject({
+    method: "PATCH",
+    url: "/api/me",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: "котаксник" },
+  });
+  assert.equal(patched.statusCode, 200);
+  assert.equal(patched.json().user.name, "котаксник");
+  assert.equal(patched.json().user.login, "kotak");
+
+  const byLogin = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { name: "kotak", code: "secret123" },
+  });
+  assert.equal(byLogin.statusCode, 200);
+  assert.equal(byLogin.json().user.name, "котаксник");
+
+  const byOldName = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { name: "котакс", code: "secret123" },
+  });
+  assert.equal(byOldName.statusCode, 401);
+  await app.close();
+});

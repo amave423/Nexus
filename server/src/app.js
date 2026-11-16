@@ -124,6 +124,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const publicUser = (u) => ({
     id: u.id,
     name: u.name,
+    login: u.login || u.name_lc,
     avatar: u.avatar,
     color: u.color,
     about: u.about || "",
@@ -191,7 +192,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const membersOf = (spaceId) =>
     db
       .prepare(
-        `SELECT u.id, u.name, u.avatar, u.color, u.about, u.status, u.last_seen AS lastSeen,
+        `SELECT u.id, u.name, u.login, u.avatar, u.color, u.about, u.status, u.last_seen AS lastSeen,
                 m.role, m.joined_at AS joinedAt
          FROM space_members m JOIN users u ON u.id = m.user_id
          WHERE m.space_id = ? ORDER BY m.joined_at`
@@ -334,9 +335,14 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
 
   /* ---------- auth ---------- */
 
+  const LOGIN_RE = /^[\p{L}\p{N}_.-]{2,24}$/u;
+  const cleanLogin = (value) => String(value || "").trim().toLowerCase();
+
   app.post("/api/auth/register", async (req, reply) => {
-    const { invite, name, code } = req.body || {};
-    const cleanName = String(name || "").trim();
+    const { invite, name, login, code } = req.body || {};
+    const account = cleanLogin(login || name);
+    if (!LOGIN_RE.test(account)) return reply.code(400).send({ error: "login_bad" });
+    const cleanName = String(name || "").trim() || account;
     if (cleanName.length < 2 || cleanName.length > 24)
       return reply.code(400).send({ error: "name_length" });
     if (String(code || "").length < 6)
@@ -345,18 +351,18 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     const inv = inviteRow(String(invite || ""));
     if (!inviteAlive(inv)) return reply.code(403).send({ error: "invite_invalid" });
 
-    const taken = db.prepare("SELECT 1 FROM users WHERE name_lc = ?").get(cleanName.toLowerCase());
-    if (taken) return reply.code(409).send({ error: "name_taken" });
+    const taken = db.prepare("SELECT 1 FROM users WHERE login = ?").get(account);
+    if (taken) return reply.code(409).send({ error: "login_taken" });
 
     const { hash, salt } = hashCode(code);
     const now = Date.now();
     const color = COLORS[Math.floor(Math.random() * COLORS.length)];
     const info = db
       .prepare(
-        `INSERT INTO users (name, name_lc, code_hash, code_salt, color, about, status, created_at, last_seen)
-         VALUES (?, ?, ?, ?, ?, '', 'online', ?, ?)`
+        `INSERT INTO users (name, name_lc, login, code_hash, code_salt, color, about, status, created_at, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, '', 'online', ?, ?)`
       )
-      .run(cleanName, cleanName.toLowerCase(), hash, salt, color, now, now);
+      .run(cleanName, account, account, hash, salt, color, now, now);
     const userId = Number(info.lastInsertRowid);
 
     const memberCount = db
@@ -386,10 +392,11 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   });
 
   app.post("/api/auth/login", async (req, reply) => {
-    const { name, code } = req.body || {};
+    const { name, login, code } = req.body || {};
+    const account = cleanLogin(login || name);
     const user = db
-      .prepare("SELECT * FROM users WHERE name_lc = ?")
-      .get(String(name || "").trim().toLowerCase());
+      .prepare("SELECT * FROM users WHERE login = ? OR (login IS NULL AND name_lc = ?)")
+      .get(account, account);
     if (!user || !verifyCode(code, user.code_hash, user.code_salt))
       return reply.code(401).send({ error: "bad_credentials" });
 
@@ -423,12 +430,8 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     if (body.name !== undefined) {
       const name = String(body.name).trim();
       if (name.length < 2 || name.length > 24) return reply.code(400).send({ error: "name_length" });
-      const taken = db
-        .prepare("SELECT 1 FROM users WHERE name_lc = ? AND id <> ?")
-        .get(name.toLowerCase(), req.user.id);
-      if (taken) return reply.code(409).send({ error: "name_taken" });
       patch.name = name;
-      patch.name_lc = name.toLowerCase();
+      patch.name_lc = `${name.toLowerCase()}#${req.user.id}`;
     }
     if (body.about !== undefined) patch.about = String(body.about).slice(0, 280);
     if (body.status !== undefined) {
@@ -1161,6 +1164,9 @@ if (shown) reply.header("content-disposition", (SHOW.test(known) ? "inline" : "a
       hub.add(user.id, socket);
       hub.setSpaces(user.id, spaceIds);
       socket.send(JSON.stringify({ t: "ready", user: publicUser(user) }));
+      for (const roster of voice.rosters(spaceIds)) {
+        socket.send(JSON.stringify({ t: "voice.roster", ...roster }));
+      }
       broadcastPresence(user.id);
 
       socket.on("message", (raw) => {
@@ -1180,8 +1186,12 @@ if (shown) reply.header("content-disposition", (SHOW.test(known) ? "inline" : "a
         const gone = hub.remove(user.id, socket);
         if (gone) {
           db.prepare("UPDATE users SET last_seen = ? WHERE id = ?").run(Date.now(), user.id);
-          const channelId = await voice.leave(user.id);
-          if (channelId) voice.roster(channelId);
+          try {
+            const channelId = await voice.leave(user.id);
+            if (channelId) voice.roster(channelId);
+          } catch (error) {
+            console.error("[nexus] voice leave on close failed", error);
+          }
         }
         for (const spaceId of spaceSet) {
           hub.broadcastSpace(spaceId, { t: "presence", ...presenceOf(spaceId) });
@@ -1207,6 +1217,15 @@ if (shown) reply.header("content-disposition", (SHOW.test(known) ? "inline" : "a
     switch (msg.t) {
       case "ping": {
         socket.send(JSON.stringify({ t: "pong", ts: msg.ts }));
+        return;
+      }
+      case "presence.pull": {
+        for (const spaceId of hub.spacesOf(user.id)) {
+          socket.send(JSON.stringify({ t: "presence", spaceId, ...presenceOf(spaceId) }));
+        }
+        for (const roster of voice.rosters([...hub.spacesOf(user.id)])) {
+          socket.send(JSON.stringify({ t: "voice.roster", ...roster }));
+        }
         return;
       }
       case "typing": {

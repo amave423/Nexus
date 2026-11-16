@@ -61,15 +61,24 @@ test("профиль: имя, о себе, статус и аватар сохр
   await app.close();
 });
 
-test("профиль: чужое имя, плохой статус и не картинка отклоняются", async () => {
+test("профиль: отображаемое имя бывает и чужим, статус и аватар проверяются", async () => {
   const { app, headers, owner } = await setup();
-  const taken = await app.inject({
+  const same = await app.inject({
     method: "PATCH",
     url: "/api/me",
     headers: headers(owner),
     payload: { name: "Мира" },
   });
-  assert.equal(taken.statusCode, 409);
+  assert.equal(same.statusCode, 200);
+  assert.equal(same.json().user.name, "Мира");
+  assert.equal(same.json().user.login, owner.body.user.login);
+
+  const again = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    payload: { login: owner.body.user.login, code: "secret123" },
+  });
+  assert.equal(again.statusCode, 200, "вход по-прежнему по логину");
 
   const status = await app.inject({
     method: "PATCH",

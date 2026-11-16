@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT NOT NULL,
   name_lc    TEXT NOT NULL UNIQUE,
+  login      TEXT,
   code_hash  TEXT NOT NULL,
   code_salt  TEXT NOT NULL,
   avatar     TEXT,
@@ -134,6 +135,7 @@ CREATE TABLE IF NOT EXISTS invites (
 `;
 
 const COLUMNS = [
+  ["users", "login", "TEXT"],
   ["users", "about", "TEXT NOT NULL DEFAULT ''"],
   ["users", "status", "TEXT NOT NULL DEFAULT 'online'"],
   ["spaces", "media_quota", "INTEGER NOT NULL DEFAULT 1073741824"],
@@ -154,6 +156,8 @@ function migrate(db) {
       .some((c) => c.name === column);
     if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
   }
+  db.exec("UPDATE users SET login = name_lc WHERE login IS NULL OR login = ''");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login ON users(login)");
 }
 
 export function openDb(file) {
