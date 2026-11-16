@@ -29,7 +29,7 @@
       const body =
         mode === "register"
           ? { invite: invite.trim(), login: login.trim(), name: name.trim() || login.trim(), code }
-          : { login: login.trim(), code };
+          : { login: login.trim(), name: login.trim(), code };
       const data = await api(`/api/auth/${mode === "register" ? "register" : "login"}`, {
         method: "POST",
         body,
