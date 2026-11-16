@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { api, connect, setToken, upload, fileUrl } from "./api.js";
   import { prefs } from "./prefs.js";
-  import { cue, playSound } from "./sound.js";
+  import { cue, playSound, wakeAudio } from "./sound.js";
   import { toast } from "./toasts.js";
   import Logo from "./Logo.svelte";
   import Avatar from "./Avatar.svelte";
@@ -11,6 +11,7 @@
   import Settings from "./Settings.svelte";
   import ServerSettings from "./ServerSettings.svelte";
   import Lightbox from "./Lightbox.svelte";
+  import UserMenu from "./UserMenu.svelte";
   import Toasts from "./Toasts.svelte";
   import WinControls from "./WinControls.svelte";
   import { createVoiceClient } from "./voice.js";
@@ -76,6 +77,13 @@
   let emojiOpen = false;
   let lastVoiceChannel = null;
   let lastRoster = null;
+  let userMenu = null;
+  let focused = true;
+  let presenceTimer = null;
+  let mentionOpen = false;
+  let mentionStart = -1;
+  let mentionList = [];
+  let mentionIndex = 0;
 
   let customEmoji = [];
   let emojiSearch = "";
@@ -142,17 +150,47 @@
             ? "high"
             : "bad";
   $: roleGroups = roles
-    .map((role) => ({ role, list: onlineMembers.filter((m) => m.roles[0]?.id === role.id) }))
+    .map((role) => ({ role, list: onlineMembers.filter((m) => topRoleOf(m)?.id === role.id) }))
     .filter((group) => group.list.length);
   $: looseOnline = onlineMembers.filter((m) => !m.roles.length);
+  $: roomPeers = new Map(
+    voiceList.map((channel) => [
+      channel.id,
+      (vs.rosters.get(channel.id) || []).map((item) => {
+        const profile = members.find((m) => m.id === item.userId) || {};
+        return {
+          id: item.userId,
+          name: item.name || profile.name || "участник",
+          login: profile.login || "",
+          color: item.color || profile.color || "#c8ff3d",
+          avatar: item.avatar || profile.avatar || null,
+          muted: item.muted,
+          deafened: item.deafened,
+          cam: item.cam,
+          stream: item.stream,
+        };
+      }),
+    ])
+  );
 
   function cueSound(kind, pref = prefs.get()) {
     if (!pref.voiceSounds) return;
     cue(kind, pref.volume);
   }
 
+  function openUserMenu(member, event) {
+    if (!member || member.id === user.id) return;
+    event.preventDefault();
+    mentionOpen = false;
+    userMenu = { member, x: event.clientX, y: event.clientY };
+  }
+
+  const memberVolume = (id) => vs.volumes?.get(id) ?? 1;
+  const memberMuted = (id) => !!vs.silent?.has(id);
+
   function watchVoice(next) {
     if (!next.channelId) {
+      if (lastVoiceChannel) cueSound("call-leave");
       lastVoiceChannel = null;
       lastRoster = null;
       return;
@@ -170,19 +208,20 @@
     const pref = prefs.get();
     if (!lastRoster) {
       lastRoster = map;
-      cueSound("join", pref);
+      cueSound("call-join", pref);
       return;
     }
     for (const [id, member] of map) {
       const was = lastRoster.get(id);
       if (!was) {
-        cueSound("join", pref);
+        if (id !== user.id) cueSound("user-join", pref);
         continue;
       }
-      if (!!was.cam !== !!member.cam) cueSound("cam", pref);
-      if (!!was.stream !== !!member.stream) cueSound("screen", pref);
+      if (id === user.id) continue;
+      if (!!was.cam !== !!member.cam) cueSound(member.cam ? "cam-on" : "cam-off", pref);
+      if (!!was.stream !== !!member.stream) cueSound(member.stream ? "screen-on" : "screen-off", pref);
     }
-    for (const id of lastRoster.keys()) if (!map.has(id)) cueSound("leave", pref);
+    for (const id of lastRoster.keys()) if (!map.has(id) && id !== user.id) cueSound("user-leave", pref);
     lastRoster = map;
   }
 
@@ -202,10 +241,9 @@
     voice?.toggleScreen().catch(() => {});
   }
 
-  const roleOf = (userId) => {
-    const member = members.find((m) => m.id === userId);
-    return member?.roles?.[0] || null;
-  };
+  const topRoleOf = (member) => (member?.roles?.length ? member.roles[member.roles.length - 1] : null);
+
+  const roleOf = (userId) => topRoleOf(members.find((m) => m.id === userId));
 
   async function openChannel(channel) {
     sideOpen = false;
@@ -274,6 +312,7 @@
     pending = [];
     replyTo = null;
     emojiOpen = false;
+    mentionOpen = false;
     const data = await api(`/api/channels/${current.id}/messages`, { method: "POST", body });
     if (!messages.some((m) => m.id === data.message.id)) messages = [...messages, data.message];
     requestAnimationFrame(growInput);
@@ -281,6 +320,27 @@
   }
 
   function onKey(e) {
+    if (mentionOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        mentionIndex = (mentionIndex + 1) % mentionList.length;
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        mentionIndex = (mentionIndex - 1 + mentionList.length) % mentionList.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyMention(mentionList[mentionIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        mentionOpen = false;
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       send();
@@ -464,38 +524,94 @@
     }
   }
 
+  function mentionedMe(message) {
+    if (!message.text) return false;
+    const keys = [user.login, user.name].filter(Boolean).map((value) => value.toLowerCase());
+    if (!keys.length) return false;
+    const tokens = String(message.text).toLowerCase().match(/@[\p{L}\p{N}_.-]+/gu) || [];
+    return tokens.some((token) => keys.includes(token.slice(1)));
+  }
+
   function notifyMessage(message) {
     if (message.userId === user.id) return;
     const pref = prefs.get();
-    if (pref.dnd) return;
-    const elsewhere = !current || current.id !== message.channelId || document.hidden;
-    if (!elsewhere) return;
-    if (pref.notifSound) playSound(pref.sound, pref.volume);
-    if (desktop && document.hidden) {
-      desktop.notify({
-        name: message.name,
-        text: message.text,
-        color: message.color,
-        avatar: message.avatar,
-        channelId: message.channelId,
-        channel: channels.find((c) => c.id === message.channelId)?.name || "",
-        accent: pref.accent,
-      });
-    } else {
-      toast({
-        name: message.name,
-        text: message.text,
-        color: message.color,
-        avatar: message.avatar,
-      });
-      if (!desktop && pref.notifDesktop && "Notification" in window && Notification.permission === "granted") {
-        new Notification(message.name, { body: message.text });
-      }
-    }
-    if (current?.id !== message.channelId) {
+    const mention = mentionedMe(message);
+    if (pref.dnd && !mention) return;
+    const sameChannel = current?.id === message.channelId;
+    if (!sameChannel) {
       unread.add(message.channelId);
       unread = new Set(unread);
     }
+    if (focused && !document.hidden && sameChannel) return;
+    if (mention) cue("mention", pref.volume);
+    else if (pref.notifSound) playSound(pref.sound, pref.volume);
+    const payload = {
+      name: message.name,
+      text: message.text || "вложение",
+      color: message.color,
+      avatar: message.avatar,
+      channelId: message.channelId,
+      channel: channels.find((c) => c.id === message.channelId)?.name || "",
+      accent: pref.accent,
+      mention,
+    };
+    if (desktop && (!focused || document.hidden)) {
+      desktop.notify(payload);
+    } else if (desktop) {
+      toast({ ...payload });
+    } else if (!focused && pref.notifDesktop && "Notification" in window && Notification.permission === "granted") {
+      new Notification(message.name, { body: payload.text });
+    } else {
+      toast({ name: payload.name, text: payload.text, color: payload.color, avatar: payload.avatar });
+    }
+  }
+
+  function updateMention() {
+    const value = inputEl?.value ?? text;
+    if (!inputEl || !value.includes("@")) {
+      mentionOpen = false;
+      return;
+    }
+    const caret = inputEl.selectionStart ?? value.length;
+    const before = value.slice(0, caret);
+    const match = before.match(/(?:^|\s)@([\p{L}\p{N}_.-]*)$/u);
+    if (!match) {
+      mentionOpen = false;
+      return;
+    }
+    const query = match[1].toLowerCase();
+    mentionStart = caret - match[1].length - 1;
+    mentionList = members
+      .filter((m) => m.id !== user.id)
+      .filter(
+        (m) =>
+          (m.login || "").toLowerCase().startsWith(query) ||
+          (m.name || "").toLowerCase().includes(query)
+      )
+      .slice(0, 6);
+    mentionIndex = 0;
+    mentionOpen = mentionList.length > 0;
+  }
+
+  function applyMention(member) {
+    if (!member) return;
+    const value = inputEl?.value ?? text;
+    const caret = inputEl?.selectionStart ?? value.length;
+    const after = value.slice(caret);
+    const handle = member.login || member.name;
+    text = `${value.slice(0, mentionStart)}@${handle} ${after}`;
+    mentionOpen = false;
+    const pos = mentionStart + handle.length + 2;
+    requestAnimationFrame(() => {
+      inputEl?.focus();
+      inputEl?.setSelectionRange(pos, pos);
+      growInput();
+    });
+  }
+
+  function onInput() {
+    growInput();
+    updateMention();
   }
 
   function handleEvent(event) {
@@ -773,9 +889,40 @@
     showSettings = true;
   }
 
+  function pullPresence() {
+    socket?.send({ t: "presence.pull" });
+  }
+
+  function onFocus() {
+    focused = true;
+    pullPresence();
+  }
+
+  function onBlur() {
+    focused = false;
+    mentionOpen = false;
+  }
+
+  function onVisible() {
+    const hidden = document.hidden;
+    document.body.classList.toggle("idle", hidden);
+    if (!hidden) pullPresence();
+  }
+
+  function wake() {
+    wakeAudio();
+  }
+
   onMount(async () => {
     syncMembers();
     window.addEventListener("resize", syncMembers);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("pointerdown", wake, { passive: true });
+    document.addEventListener("visibilitychange", onVisible);
+    focused = !document.hidden;
+    onVisible();
+    presenceTimer = setInterval(pullPresence, 30_000);
     const boot = await api("/api/bootstrap");
     spaces = boot.spaces || [];
     applyState(boot);
@@ -801,6 +948,7 @@
       desktop.setHotkeys(prefs.get().keys);
       desktop.onHotkey((action) => runAction(action));
       desktop.onTrayAction((action) => runAction(action));
+      desktop.onFocusState?.((value) => (focused = value));
       desktop.onNotifyOpen((channelId) => {
         const target = channels.find((c) => c.id === channelId);
         if (target) openChannel(target);
@@ -817,9 +965,14 @@
     unsubscribe?.();
     socket?.close();
     clearTimeout(typingTimer);
+    clearInterval(presenceTimer);
     unsubscribePrefs?.();
     window.removeEventListener("keydown", onHotkey);
     window.removeEventListener("resize", syncMembers);
+    window.removeEventListener("focus", onFocus);
+    window.removeEventListener("blur", onBlur);
+    window.removeEventListener("pointerdown", wake);
+    document.removeEventListener("visibilitychange", onVisible);
   });
 
   async function logout() {
@@ -897,11 +1050,23 @@
         >
           <Volume2 size={16} strokeWidth={1.8} />
           <span class="nm">{channel.name}</span>
-          {#if (vs.rosters.get(channel.id) || []).length}
+          {#if (roomPeers.get(channel.id) || []).length}
             <i class="live-dot"></i>
-            <i class="chan-count">{(vs.rosters.get(channel.id) || []).length}</i>
+            <i class="chan-count">{(roomPeers.get(channel.id) || []).length}</i>
           {/if}
         </button>
+        {#each roomPeers.get(channel.id) || [] as peer (peer.id)}
+          <button
+            class="peer"
+            title={`${peer.name}${peer.muted ? " · микрофон выключен" : ""}`}
+            on:click={() => openVoice(channel)}
+            on:contextmenu={(e) => openUserMenu(peer, e)}
+          >
+            <Avatar name={peer.name} color={peer.color} avatar={peer.avatar} size={22} radius={7} />
+            <span class="peer-name">{peer.name}</span>
+            {#if peer.muted}<i class="peer-ic"><MicOff size={12} strokeWidth={2} /></i>{/if}
+          </button>
+        {/each}
       {/each}
     </div>
 
@@ -968,7 +1133,7 @@
         <button class="set-copy" on:click={openNewServer}>Создать или войти</button>
       </div>
     {:else if inRoom}
-      <Room channel={current} {user} people={members} {vs} {voice} />
+      <Room channel={current} {user} people={members} {vs} {voice} on:menu={(e) => openUserMenu(e.detail.member, e.detail.event)} />
     {:else if searchOpen}
       <div class="panel">
         <div class="panel-head">
@@ -1101,12 +1266,29 @@
           bind:this={inputEl}
           bind:value={text}
           on:keydown={onKey}
-          on:input={growInput}
+          on:input={onInput}
           on:paste={onPaste}
+          on:blur={() => setTimeout(() => (mentionOpen = false), 120)}
           rows="1"
           placeholder={current ? `Написать в #${current.name}` : "Выбери канал"}
           disabled={!current}
         ></textarea>
+        {#if mentionOpen}
+          <div class="mention-pop">
+            {#each mentionList as person, i (person.id)}
+              <button
+                type="button"
+                class="mention-row"
+                class:on={i === mentionIndex}
+                on:mousedown|preventDefault={() => applyMention(person)}
+              >
+                <Avatar name={person.name} color={person.color} avatar={person.avatar} size={22} radius={7} />
+                <span class="mention-name">{person.name}</span>
+                <span class="mention-login">@{person.login || person.name}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
         <div class="emoji-wrap">
           <button type="button" class="comp-btn" title="Эмодзи" aria-label="Эмодзи" on:click={() => (emojiOpen = !emojiOpen)}>
             <FaceSlightlySmiling size={18} strokeWidth={1.8} />
@@ -1144,13 +1326,11 @@
       <div class="mem-group">
         <h3><i class="rg-dot" style="background:{group.role.color}"></i>{group.role.name.toLowerCase()} — {group.list.length}</h3>
         {#each group.list as member (member.id)}
-          <div class="mem">
+          <div class="mem" on:contextmenu={(e) => openUserMenu(member, e)}>
             <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={dotOf(member.id)} />
             <div class="mem-info">
-              <div class="mem-name" style="color:{member.roles[0]?.color || 'inherit'}">{member.name}</div>
-              <div class="mem-act">
-                {STATUS_LABEL[statusOf(member.id)] || "в сети"}{member.roles.length ? ` · ${member.roles.map((r) => r.name).join(" · ")}` : ""}
-              </div>
+              <div class="mem-name" style="color:{topRoleOf(member)?.color || 'inherit'}">{member.name}</div>
+              <div class="mem-act">{STATUS_LABEL[statusOf(member.id)] || "в сети"}</div>
             </div>
           </div>
         {/each}
@@ -1161,7 +1341,7 @@
       <div class="mem-group">
         <h3>в сети — {looseOnline.length}</h3>
         {#each looseOnline as member (member.id)}
-          <div class="mem">
+          <div class="mem" on:contextmenu={(e) => openUserMenu(member, e)}>
             <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={dotOf(member.id)} />
             <div class="mem-info">
               <div class="mem-name">{member.name}</div>
@@ -1176,7 +1356,7 @@
       <div class="mem-group">
         <h3>не в сети — {offlineMembers.length}</h3>
         {#each offlineMembers as member (member.id)}
-          <div class="mem off">
+          <div class="mem off" on:contextmenu={(e) => openUserMenu(member, e)}>
             <Avatar name={member.name} color={member.color} avatar={member.avatar} size={32} radius={10} dot={OFFLINE_DOT} />
             <div class="mem-info">
               <div class="mem-name">{member.name}</div>
@@ -1194,6 +1374,19 @@
 {/if}
 
 <Toasts />
+
+{#if userMenu}
+  <UserMenu
+    member={userMenu.member}
+    x={userMenu.x}
+    y={userMenu.y}
+    volume={memberVolume(userMenu.member.id) * 100}
+    muted={memberMuted(userMenu.member.id)}
+    onVolume={(value) => voice?.setUserVolume(userMenu.member.id, value)}
+    onMute={() => voice?.setUserMuted(userMenu.member.id, !memberMuted(userMenu.member.id))}
+    onClose={() => (userMenu = null)}
+  />
+{/if}
 
 {#if showSettings}
   <Settings

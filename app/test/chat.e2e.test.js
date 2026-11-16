@@ -200,3 +200,44 @@ test("голос: шумодав RNNoise включается в проверк�
   const mode = await page.locator(".set-row", { hasText: "Шумоподавление" }).locator(".dd-btn").innerText();
   assert.match(mode, /RNNoise/);
 });
+
+test("чат: @логин уведомляет в другом канале и подсказка вставляет ник", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const pageA = await browser.newPage();
+  await register(pageA, { name: "Артём" });
+  const pageB = await browser.newPage();
+  await register(pageB, { name: "Мира" });
+
+  await composer(pageB).fill("привет @ар");
+  await pageB.locator(".mention-pop .mention-row", { hasText: "Артём" }).waitFor({ timeout: 5000 });
+  const rest = await pageB.evaluate(() => {
+    const area = document.querySelector(".composer textarea");
+    return area.value.slice(area.selectionStart);
+  });
+  assert.equal(rest, "", "до подсказки ничего не выделено и не съедено");
+
+  await pageB.locator(".mention-pop .mention-row", { hasText: "Артём" }).click();
+  const typed = await pageB.locator(".composer textarea").inputValue();
+  assert.match(typed, /^привет @артём $/, "подсказка вставила ник и пробел");
+});
+
+test("чат: упоминание приходит уведомлением, даже когда уведомления выключены", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const pageA = await browser.newPage();
+  await register(pageA, { name: "Артём" });
+  const pageB = await browser.newPage();
+  await register(pageB, { name: "Мира" });
+
+  await pageB.locator(".chan", { hasText: "дизайн" }).click();
+  await pageB.getByPlaceholder("Написать в #дизайн").waitFor();
+  await composer(pageA).fill("@мира глянь сюда");
+  await composer(pageA).press("Enter");
+
+  await pageB.locator(".toast", { hasText: "глянь сюда" }).waitFor({ timeout: 10000 });
+});

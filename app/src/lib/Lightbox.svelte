@@ -7,9 +7,10 @@
 
   const dispatch = createEventDispatcher();
 
-  const MIN = 1;
+  const MIN = 0.2;
+  const START = 0.5;
   const MAX = 8;
-  let scale = 1;
+  let scale = START;
   let tx = 0;
   let ty = 0;
   let dragging = false;
@@ -24,7 +25,7 @@
 
   function zoomTo(next) {
     scale = clamp(next);
-    if (scale === 1) {
+    if (scale <= START) {
       tx = 0;
       ty = 0;
     }
@@ -53,7 +54,7 @@
     scale = next;
     tx -= px * (k - 1);
     ty -= py * (k - 1);
-    if (scale === 1) {
+    if (scale <= START) {
       tx = 0;
       ty = 0;
     }

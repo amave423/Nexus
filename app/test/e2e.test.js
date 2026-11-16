@@ -158,9 +158,9 @@ test("клиент: неверный код доступа при входе о�
 
   await page.getByRole("button", { name: "Настройки" }).click();
   await page.getByRole("button", { name: "Выйти из аккаунта" }).click();
-  await page.getByLabel("Имя").fill("Артём");
+  await page.getByLabel("Логин").fill("Артём");
   await page.getByLabel("Пароль").fill("wrong-code");
   await page.getByRole("button", { name: "Войти" }).click();
-  await page.getByText("Неверное имя или пароль").waitFor();
+  await page.getByText("Неверный логин или пароль").waitFor();
   assert.equal(await page.locator(".chan").count(), 0, "в чат не пустило");
 });

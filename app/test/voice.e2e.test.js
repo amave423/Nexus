@@ -99,10 +99,10 @@ test("голос: два клиента слышат друг друга в ка
   await joinVoice(pageB);
   await joinVoice(pageA);
 
-  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
-  await pageB.locator(".seat").nth(1).waitFor({ timeout: 20000 });
-  assert.equal(await pageA.locator(".seat").count(), 2, "в комнате Артёма двое");
-  assert.equal(await pageB.locator(".seat").count(), 2, "в комнате Миры двое");
+  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageB.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  assert.equal(await pageA.locator(".node").count(), 2, "в комнате Артёма двое");
+  assert.equal(await pageB.locator(".node").count(), 2, "в комнате Миры двое");
 
   const gotA = await waitForAudio(pageA, "Артёма");
   const gotB = await waitForAudio(pageB, "Миру");
@@ -122,8 +122,8 @@ test("голос: два клиента слышат друг друга в ка
   assert.ok(liveTracks.some((item) => item.tracks === 1 && item.live), "звук собеседника играет");
 
   await pageA.locator(".room").getByTitle("Микрофон").click();
-  await pageB.locator(".seat-mute").first().waitFor({ timeout: 10000 });
-  assert.equal(await pageB.locator(".seat-mute").count(), 1, "у Миры видно, что Артём замьючен");
+  await pageB.locator(".node-mute").first().waitFor({ timeout: 10000 });
+  assert.equal(await pageB.locator(".node-mute").count(), 1, "у Миры видно, что Артём замьючен");
 
   await pageA.locator(".room").getByTitle("Камера").click();
   await pageB.locator(".cams .cam").first().waitFor({ timeout: 20000 });
@@ -135,8 +135,8 @@ test("голос: два клиента слышат друг друга в ка
   assert.ok(camTracks >= 1, "камера Артёма видна у Миры");
 
   await pageA.locator(".rbtn.leave").click();
-  await pageB.locator(".seat").nth(1).waitFor({ state: "detached", timeout: 20000 });
-  assert.equal(await pageB.locator(".seat").count(), 1, "после выхода остался один");
+  await pageB.locator(".node").nth(1).waitFor({ state: "detached", timeout: 20000 });
+  assert.equal(await pageB.locator(".node").count(), 1, "после выхода остался один");
 
   await contextA.close();
   await contextB.close();
@@ -172,7 +172,7 @@ test("голос: демонстрация экрана доходит до вт
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageB.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+  await pageB.locator(".node").nth(1).waitFor({ timeout: 20000 });
 
   await pageA.getByTitle("Демонстрация экрана").click();
   await pageB.locator(".stream-view").waitFor({ timeout: 20000 });
@@ -206,7 +206,7 @@ test("голос: демонстрация экрана доходит до вт
 
   await pageA.getByTitle("Демонстрация экрана").click();
   await pageB.locator(".stream-view").waitFor({ state: "detached", timeout: 20000 });
-  assert.equal(await pageB.locator(".seat").count(), 2, "после остановки стрима комната на месте");
+  assert.equal(await pageB.locator(".node").count(), 2, "после остановки стрима комната на месте");
 
   await contextA.close();
   await contextB.close();
@@ -226,7 +226,7 @@ test("голос: звук не пропадает при переходе в т
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
   await waitForAudio(pageA, "Артёма");
 
   await pageA.locator(".chan", { hasText: "general" }).click();
@@ -249,8 +249,8 @@ test("голос: звук не пропадает при переходе в т
 
   await pageA.locator(".voice-seg").waitFor({ timeout: 5000 });
   await pageA.locator(".voice-seg").getByTitle("Микрофон").click();
-  await pageB.locator(".seat-mute").first().waitFor({ timeout: 10000 });
-  assert.equal(await pageB.locator(".seat-mute").count(), 1, "мьют из текстового канала виден в комнате");
+  await pageB.locator(".node-mute").first().waitFor({ timeout: 10000 });
+  assert.equal(await pageB.locator(".node-mute").count(), 1, "мьют из текстового канала виден в комнате");
 
   await pageA.locator(".voice-seg").getByTitle("Выйти из канала").click();
   await pageA.locator(".voice-seg").waitFor({ state: "detached", timeout: 10000 });
@@ -301,7 +301,7 @@ test("голос: без микрофона входишь в канал и сл
   await pageB.locator(".mic-warn").waitFor({ timeout: 15000 });
 
   await joinVoice(pageA);
-  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
 
   const got = await waitForAudio(pageB, "Миру");
   assert.ok(got.bytes > 0, "без микрофона Мира слышит Артёма");
@@ -353,7 +353,7 @@ test("голос: проверка микрофона в настройках н
   const page = await context.newPage();
   await register(page, "Артём");
   await joinVoice(page);
-  await page.locator(".seat").first().waitFor({ timeout: 20000 });
+  await page.locator(".node").first().waitFor({ timeout: 20000 });
 
   const before = await page.evaluate(() => ({ muted: window.__nexusVoice.state.muted, error: window.__nexusVoice.state.micError }));
   assert.equal(before.muted, false, "канал начался с включённым микрофоном");
@@ -383,6 +383,50 @@ test("голос: проверка микрофона в настройках н
   await context.close();
 });
 
+test("голос: смена шумодава в канале не ломает микрофон", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext({ permissions: ["microphone"] });
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await waitForAudio(pageB, "Артёма");
+
+  await pageA.locator(".profile-btn").click();
+  await pageA.getByRole("button", { name: "Голос и видео" }).click();
+  const pane = pageA.getByRole("dialog");
+
+  for (const label of ["Браузерный · лёгкий", "Выключен", "RNNoise · сильный"]) {
+    await pane.locator(".dd.open").count();
+    await pane.locator(".dd-btn", { hasText: /RNNoise|Браузерный|Выключен/ }).first().click();
+    await pageA.locator(".dd-opt", { hasText: label }).first().click();
+    await pageA.waitForTimeout(1500);
+    const mic = await pageA.evaluate(() => ({
+      error: window.__nexusVoice.state.micError,
+      track: window.__nexusVoice.micTrack() ? window.__nexusVoice.micTrack().readyState : "none",
+    }));
+    assert.equal(mic.error, null, `шумодав «${label}»: ошибки микрофона нет`);
+    assert.equal(mic.track, "live", `шумодав «${label}»: дорожка жива`);
+  }
+
+  await pane.getByRole("button", { name: "Закрыть" }).click();
+  const before = (await audioBytes(pageB)).find((item) => item.kind === "audio")?.bytes || 0;
+  await pageB.waitForTimeout(2500);
+  const after = (await audioBytes(pageB)).find((item) => item.kind === "audio")?.bytes || 0;
+  assert.ok(after > before, `после смены шумодава голос доходит: было ${before}, стало ${after}`);
+
+  await contextA.close();
+  await contextB.close();
+});
+
 test("голос: переход на другой сервер не выкидывает из канала", async (t) => {
   await startServer();
   const browser = await chromium.launch({ args: FAKE_MEDIA });
@@ -397,7 +441,7 @@ test("голос: переход на другой сервер не выкид�
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageA.locator(".seat").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
   await waitForAudio(pageA, "Артёма");
 
   await pageA.getByRole("button", { name: "Новый сервер" }).click();
@@ -414,7 +458,7 @@ test("голос: переход на другой сервер не выкид�
   const after = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
   assert.ok(after > before, `звук продолжает идти: было ${before}, стало ${after}`);
 
-  assert.equal(await pageB.locator(".seat").count(), 2, "на первом сервере собеседник остался в канале");
+  assert.equal(await pageB.locator(".node").count(), 2, "на первом сервере собеседник остался в канале");
 
   await pageA.locator(".coin").first().click();
   await pageA.getByPlaceholder("Написать в #general").waitFor({ timeout: 10000 });

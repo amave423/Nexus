@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("nexus", {
     toggleMaximize: () => ipcRenderer.send("win:maximize"),
     close: () => ipcRenderer.send("win:close"),
     onMaximized: listen("win:maximized"),
+    onFocusState: listen("win:focus-state"),
   },
   notify: {
     onData: listen("notify:data"),

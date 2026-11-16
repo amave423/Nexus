@@ -6,6 +6,7 @@
 
   let mode = "login";
   let invite = "";
+  let login = "";
   let name = "";
   let code = "";
   let busy = false;
@@ -14,10 +15,11 @@
   const ERRORS = {
     invite_invalid: "Инвайт не найден или устарел",
     invite_used: "Инвайт уже израсходован",
-    name_taken: "Это имя уже занято",
+    login_taken: "Этот логин уже занят",
+    login_bad: "Логин: 2–24 буквы, цифры, _ . -",
     name_length: "Имя: от 2 до 24 символов",
     code_short: "Пароль: минимум 6 символов",
-    bad_credentials: "Неверное имя или пароль",
+    bad_credentials: "Неверный логин или пароль",
   };
 
   async function submit() {
@@ -26,8 +28,8 @@
     try {
       const body =
         mode === "register"
-          ? { invite: invite.trim(), name: name.trim(), code }
-          : { name: name.trim(), code };
+          ? { invite: invite.trim(), login: login.trim(), name: name.trim() || login.trim(), code }
+          : { login: login.trim(), code };
       const data = await api(`/api/auth/${mode === "register" ? "register" : "login"}`, {
         method: "POST",
         body,
@@ -56,9 +58,16 @@
     {/if}
 
     <div class="field">
-      <label for="name">Имя</label>
-      <input id="name" bind:value={name} placeholder="как тебя звать" autocomplete="username" />
+      <label for="login">Логин</label>
+      <input id="login" bind:value={login} placeholder="для входа, менять нельзя" autocomplete="username" />
     </div>
+
+    {#if mode === "register"}
+      <div class="field">
+        <label for="name">Имя в чате</label>
+        <input id="name" bind:value={name} placeholder="как тебя звать (можно менять)" autocomplete="off" />
+      </div>
+    {/if}
 
     <div class="field">
       <label for="code">Пароль</label>

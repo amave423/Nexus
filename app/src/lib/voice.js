@@ -40,8 +40,12 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const rosters = new Map();
   const levels = new Map();
   const sinks = new Map();
+  const gains = new Map();
   const volumes = new Map();
   const silent = new Set();
+  let mixCtx = null;
+  let mixBus = null;
+  let levelsPublish = 0;
   let testHold = false;
   let heldEnabled = [];
 
@@ -76,12 +80,12 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       micLevel: state.micLevel,
       micError: state.micError,
       noise: state.noise,
-      rosters: new Map([...rosters].map(([id, members]) => [id, members.map((m) => ({ ...m }))])),
-      remote: new Map([...remote].map(([id, value]) => [id, { ...value }])),
-      local: { ...local },
-      levels: new Map(levels),
-      volumes: new Map(volumes),
-      silent: new Set(silent),
+      rosters,
+      remote,
+      local,
+      levels,
+      volumes,
+      silent,
     };
   }
 
@@ -124,15 +128,36 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function applyUserAudio(userId) {
     const el = sinks.get(userId);
     if (!el) return;
-    el.volume = volumes.has(userId) ? volumes.get(userId) : 1;
+    const level = volumes.has(userId) ? volumes.get(userId) : 1;
+    const gain = gains.get(userId);
+    if (gain) el.volume = 1;
+    else el.volume = Math.max(0, Math.min(1, level));
+    if (gain) gain.gain.value = level;
     el.muted = state.deafened || testHold || silent.has(userId);
   }
 
   function setUserVolume(userId, value) {
-    const level = Math.max(0, Math.min(1, Number(value)));
+    const level = Math.max(0, Math.min(2, Number(value)));
     volumes.set(userId, level);
     applyUserAudio(userId);
     publish();
+  }
+
+  function mix() {
+    if (mixCtx) return mixCtx;
+    try {
+      mixCtx = new AudioContext({ latencyHint: "interactive" });
+      mixBus = mixCtx.createGain();
+      mixBus.connect(mixCtx.destination);
+    } catch {
+      mixCtx = null;
+      mixBus = null;
+    }
+    return mixCtx;
+  }
+
+  function resumeMix() {
+    if (mixCtx && mixCtx.state === "suspended") mixCtx.resume().catch(() => {});
   }
 
   function setUserMuted(userId, muted) {
@@ -151,17 +176,32 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       el.dataset.voice = String(userId);
       document.body.appendChild(el);
       sinks.set(userId, el);
+      const ctx = mix();
+      if (ctx) {
+        try {
+          const gain = ctx.createGain();
+          gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
+          ctx.createMediaElementSource(el).connect(gain).connect(mixBus);
+          gains.set(userId, gain);
+          resumeMix();
+        } catch {
+          gains.delete(userId);
+        }
+      }
       applyOutput(settings());
     }
     return el;
   }
 
   function applyOutput(pref = settings() || {}) {
+    const target = pref.outDevId || "";
+    if (mixCtx && mixCtx.setSinkId) {
+      mixCtx.setSinkId(target).catch(() => {});
+      return;
+    }
     for (const el of sinks.values()) {
       if (!el.setSinkId) continue;
-      const target = pref.outDevId || "";
-      const current = el.sinkId || "";
-      if (current === target) continue;
+      if ((el.sinkId || "") === target) continue;
       el.setSinkId(target).catch(() => {});
     }
   }
@@ -191,38 +231,115 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   let micBusy = false;
+  let micPending = false;
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  async function startMicWithRetry(attempts = 4) {
-    for (let i = 0; i < attempts; i += 1) {
-      try {
-        await startMic();
-        return true;
-      } catch {
-        if (i < attempts - 1) await wait(250 + i * 250);
-      }
+  function produceOptions() {
+    const pref = settings() || {};
+    return {
+      appData: { source: "camera" },
+      encodings: [{ maxBitrate: QUALITY[pref.quality] || 96000 }],
+      codecOptions: {
+        opusStereo: false,
+        opusDtx: false,
+        opusFec: true,
+        opusMaxPlaybackRate: 48000,
+      },
+    };
+  }
+
+  async function captureMic() {
+    const pref = settings() || {};
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: pref.micDevId ? { exact: pref.micDevId } : undefined,
+        echoCancellation: pref.echoCancel !== false,
+        noiseSuppression: pref.noiseMode === "browser",
+        autoGainControl: !!pref.autoGain,
+        channelCount: 1,
+      },
+      video: false,
+    });
+    let track = stream.getAudioTracks()[0];
+    let chain = null;
+    try {
+      chain = await buildMicTrack(stream, {
+        level: pref.micLevel,
+        mode: pref.noiseMode || "rnnoise",
+      });
+      track = chain.track;
+      state.noise = chain.failed ? "failed" : pref.noiseMode || "rnnoise";
+    } catch {
+      chain = null;
+      state.noise = "failed";
     }
-    return false;
+    state.noise = state.noise || pref.noiseMode || "rnnoise";
+    return { stream, chain, track };
   }
 
   async function restartMic() {
-    if (!state.joined || leaving || micBusy) return;
+    if (!state.joined || leaving) return;
+    if (micBusy) {
+      micPending = true;
+      return;
+    }
     clearTimeout(applyTimer);
-    const hadMic = !!micProducer || !state.micError;
-    if (!hadMic) return;
     micBusy = true;
     try {
-      await stopMic();
-      if (await startMicWithRetry()) {
-        state.micError = null;
-      } else {
+      const prevStream = micStream;
+      const prevChain = micChain;
+      let next;
+      try {
+        next = await captureMic();
+      } catch {
         state.micError = "no_mic";
+        return;
       }
+      const track = next.track;
+      if (micProducer) {
+        try {
+          await micProducer.replaceTrack({ track });
+        } catch {
+          try {
+            micProducer.close();
+          } catch {
+            /* уже закрыт */
+          }
+          micProducer = null;
+        }
+      }
+      if (!micProducer) {
+        try {
+          micProducer = await sendTransport.produce({ track, ...produceOptions() });
+        } catch {
+          next.stream.getTracks().forEach((item) => item.stop());
+          next.chain?.dispose?.();
+          state.micError = "no_mic";
+          return;
+        }
+      }
+      micStream = next.stream;
+      micChain = next.chain;
+      micSignature = audioSignature(settings() || {});
+      state.micError = null;
+      local.mic = micStream;
+      prevStream?.getTracks().forEach((item) => item.stop());
+      prevChain?.dispose?.();
+      startMeter(track);
+      silenceTracks(state.muted);
+      await request("voice.pauseProducer", {
+        producerId: micProducer.id,
+        paused: state.muted,
+      }).catch(() => {});
     } finally {
       micBusy = false;
+      publish();
+      if (micPending) {
+        micPending = false;
+        setTimeout(() => restartMic().catch(() => {}), 120);
+      }
     }
-    publish();
   }
 
   function attachAudio(userId, stream) {
@@ -235,6 +352,15 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function dropSink(userId) {
     const el = sinks.get(userId);
+    const gain = gains.get(userId);
+    gains.delete(userId);
+    if (gain) {
+      try {
+        gain.disconnect();
+      } catch {
+        /* уже отключено */
+      }
+    }
     if (!el) return;
     el.srcObject = null;
     el.remove();
@@ -357,10 +483,10 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         let sum = 0;
         for (const value of buffer) sum += value;
         const next = Math.min(1, sum / buffer.length / 90);
-        if (Math.abs(next - state.micLevel) < 0.02) return;
+        if (Math.abs(next - state.micLevel) < 0.06) return;
         state.micLevel = next;
         publish();
-      }, 120);
+      }, 180);
     } catch {
       /* метра не будет, голос работает */
     }
@@ -376,15 +502,6 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const QUALITY = { "64 kbps": 64000, "96 kbps": 96000, "128 kbps": 128000 };
   let micChain = null;
 
-  let micStarting = null;
-
-  function startMic() {
-    if (micProducer) return Promise.resolve();
-    if (micStarting) return micStarting;
-    micStarting = openMic().finally(() => (micStarting = null));
-    return micStarting;
-  }
-
   function micTrack() {
     const chained = micChain?.track || null;
     if (chained && chained.readyState === "live") return chained;
@@ -395,80 +512,42 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     return null;
   }
 
-  async function openMic() {
-    const pref = settings() || {};
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: pref.micDevId ? { exact: pref.micDevId } : undefined,
-        echoCancellation: pref.echoCancel !== false,
-        noiseSuppression: pref.noiseMode === "browser",
-        autoGainControl: !!pref.autoGain,
-        channelCount: 1,
-      },
-      video: false,
-    });
-    let track = micStream.getAudioTracks()[0];
-    micSignature = audioSignature(pref);
-    state.noise = pref.noiseMode || "rnnoise";
-    try {
-      micChain = await buildMicTrack(micStream, {
-        level: pref.micLevel,
-        mode: pref.noiseMode || "rnnoise",
-      });
-      track = micChain.track;
-      if (micChain.failed) state.noise = "failed";
-    } catch {
-      micChain = null;
-      state.noise = "failed";
-    }
-    micProducer = await sendTransport.produce({
-      track,
-      appData: { source: "camera" },
-      encodings: [{ maxBitrate: QUALITY[pref.quality] || 96000 }],
-      codecOptions: {
-        opusStereo: false,
-        opusDtx: false,
-        opusFec: true,
-        opusMaxPlaybackRate: 48000,
-      },
-    });
-    local.mic = micStream;
-    startMeter(track);
-    if (state.muted) {
-      silenceTracks(true);
-      await request("voice.pauseProducer", { producerId: micProducer.id, paused: true }).catch(
-        () => {}
-      );
-    }
-    publish();
-  }
-
   async function requestMic() {
-    micBusy = true;
-    let ok = true;
-    try {
-      if (!micProducer) ok = await startMicWithRetry();
-      if (ok) {
-        state.micError = null;
-        if (state.deafened) await setDeafened(false);
-        await setMuted(false);
-      } else {
-        state.micError = "no_mic";
-      }
-    } catch {
-      ok = false;
-      state.micError = "no_mic";
-    } finally {
-      micBusy = false;
+    if (!state.joined || leaving) {
+      pushState();
+      return false;
     }
-    pushState();
+    clearTimeout(applyTimer);
+    await restartMic();
+    const ok = !!micProducer;
+    if (ok) {
+      state.micError = null;
+      if (state.deafened) await setDeafened(false, true);
+      if (state.muted) await setMuted(false);
+      else pushState();
+    } else {
+      state.micError = "no_mic";
+      pushState();
+    }
     return ok;
   }
 
   async function stopMic() {
     stopMeter();
-    micProducer?.close();
-    micProducer = null;
+    if (micProducer) {
+      const producer = micProducer;
+      micProducer = null;
+      try {
+        await request("voice.closeProducer", { producerId: producer.id });
+      } catch {
+        /* уже закрыт */
+      }
+      try {
+        producer.close();
+      } catch {
+        /* уже закрыт */
+      }
+    }
     micStream?.getTracks().forEach((track) => track.stop());
     micStream = null;
     micChain?.dispose();
@@ -496,17 +575,14 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
           );
         }
       }
-      try {
-        await startMic();
-      } catch {
-        state.micError = "no_mic";
-        state.muted = true;
-      }
       state.joined = true;
       state.joining = false;
+      micSignature = "";
+      await restartMic();
       pushState();
       const pref = settings() || {};
       applyOutput(pref);
+      resumeMix();
       micSignature = audioSignature(pref);
       for (const queued of pendingProducers.splice(0)) {
         consume({
@@ -674,6 +750,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     state.cam = true;
     local.camera = camStream;
     pushState();
+    soundCue("cam-on");
   }
 
   async function stopCamera({ silent = false } = {}) {
@@ -686,8 +763,12 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     camStream = null;
     local.camera = null;
     state.cam = false;
-    if (silent) publish();
-    else pushState();
+    if (silent) {
+      publish();
+    } else {
+      pushState();
+      soundCue("cam-off");
+    }
   }
 
   async function toggleCamera() {
@@ -711,6 +792,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     state.stream = true;
     local.screen = new MediaStream([track]);
     pushState();
+    soundCue("screen-on");
   }
 
   async function stopScreen({ silent = false } = {}) {
@@ -723,8 +805,12 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     screenStream = null;
     local.screen = null;
     state.stream = false;
-    if (silent) publish();
-    else pushState();
+    if (silent) {
+      publish();
+    } else {
+      pushState();
+      soundCue("screen-off");
+    }
   }
 
   async function toggleScreen() {
@@ -758,6 +844,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         if (event.channelId && event.channelId !== state.channelId) return;
         levels.clear();
         for (const item of event.levels || []) levels.set(item.userId, item.volume);
+        const now = Date.now();
+        if (now - levelsPublish < 140) return;
+        levelsPublish = now;
         publish();
         return;
       }

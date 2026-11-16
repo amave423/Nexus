@@ -421,7 +421,7 @@
             </label>
             <div class="who">
               <b>{user.name}</b>
-              <span>@{user.name.toLowerCase().replace(/\s+/g, "")} · {STATUS_LABEL[user.status] || "в сети"}</span>
+              <span>@{user.login || user.name} · {STATUS_LABEL[user.status] || "в сети"}</span>
             </div>
             {#if user.avatar}
               <button class="ghost-btn" style="margin-left:auto" on:click={resetAvatar}>Сбросить</button>
@@ -431,6 +431,7 @@
           <div class="set-field">
             <label for="setName">Отображаемое имя</label>
             <input id="setName" class="set-input" bind:value={name} maxlength="24" />
+            <small>Для входа используется логин @{user.login || user.name} — он не меняется.</small>
           </div>
           <div class="set-field">
             <label for="setAbout">О себе</label>

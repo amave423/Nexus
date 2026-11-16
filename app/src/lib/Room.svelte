@@ -1,6 +1,7 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { prefs } from "./prefs.js";
+  import Avatar from "./Avatar.svelte";
   import { Mic, MicOff, Headphones, HeadphoneOff, Video, MonitorUp, PhoneOff, Expand, SlidersHorizontal, Volume2, VolumeX } from "@lucide/svelte";
 
   export let channel;
@@ -9,13 +10,13 @@
   export let vs;
   export let voice;
 
+  const dispatch = createEventDispatcher();
+
   let seconds = 0;
   let timer = null;
-  let stageEl = null;
   let feedEl = null;
   let mixOpen = false;
 
-  const initial = (name) => (name || "?").slice(0, 2).toUpperCase();
   const plural = (n, one, few, many) => {
     const m = n % 100;
     if (m > 10 && m < 20) return many;
@@ -33,7 +34,9 @@
     return {
       userId: m.userId,
       name: m.name || profile.name || (itsMe ? user.name : "участник"),
+      login: profile.login || "",
       color: m.color || profile.color || "#c8ff3d",
+      avatar: m.avatar || profile.avatar || null,
       muted: m.muted,
       deafened: m.deafened,
       cam: m.cam,
@@ -48,12 +51,15 @@
 
   $: screens = roomies.filter((p) => screenOf(p));
   $: cams = roomies.filter((p) => camOf(p));
+  $: quiet = roomies.filter((p) => !camOf(p) && !screenOf(p));
   $: drawer = roomies.find((p) => screenOf(p));
   $: mode = screens.length ? "stream" : cams.length ? "cams" : "talk";
   $: viewers = Math.max(0, roomies.length - 1);
-  $: speaking = (p) => vs.levels.has(p.userId);
+  $: levelOf = (p) => (p.me ? vs.micLevel : vs.levels.get(p.userId) || 0);
+  $: speaking = (p) => !p.muted && levelOf(p) > 0.06;
   $: volOf = (p) => Math.round(((vs.volumes?.get(p.userId) ?? 1) * 100));
   $: mutedOf = (p) => !!vs.silent?.has(p.userId);
+  $: peak = roomies.reduce((top, p) => (p.muted ? top : Math.max(top, levelOf(p))), 0);
 
   function videoStream(node, stream) {
     const attach = (s) => {
@@ -77,6 +83,12 @@
 
   function toggleScreen() {
     voice.toggleScreen().catch(() => {});
+  }
+
+  function menu(event, person) {
+    if (person.me) return;
+    event.preventDefault();
+    dispatch("menu", { member: person, event });
   }
 
   onMount(() => {
@@ -111,7 +123,7 @@
     <div class="mix">
       {#each roomies as p (p.userId)}
         <div class="mix-row">
-          <span class="mix-av" style="background:{p.color || '#c8ff3d'}">{initial(p.name)}</span>
+          <Avatar name={p.name} color={p.color} avatar={p.avatar} size={26} radius={8} />
           <span class="mix-name">{p.name}{p.me ? " · ты" : ""}</span>
           {#if !p.me}
             <button
@@ -127,12 +139,13 @@
               class="mix-range"
               type="range"
               min="0"
-              max="100"
+              max="200"
               value={volOf(p)}
-              style="--fill:{volOf(p)}%"
+              style="--fill:{volOf(p) / 2}%"
               aria-label={`Громкость ${p.name}`}
               on:input={(e) => voice.setUserVolume(p.userId, +e.currentTarget.value / 100)}
             />
+            <span class="mix-val">{volOf(p)}%</span>
           {:else}
             <span class="mix-name dim">это ты</span>
           {/if}
@@ -141,7 +154,7 @@
     </div>
   {/if}
 
-  <div class="room-stage" bind:this={stageEl}>
+  <div class="room-stage">
     {#if vs.error}
       <div class="room-error">
         <b>Не удалось подключиться</b>
@@ -165,13 +178,15 @@
         </button>
         <div class="stream-strip">
           {#each roomies as p (p.userId)}
-            <span class="strip-av" style="background:{p.color || '#c8ff3d'}" title={p.name}>{initial(p.name)}</span>
+            <button class="strip-av" class:speaking={speaking(p)} title={p.name} on:contextmenu={(e) => menu(e, p)}>
+              <Avatar name={p.name} color={p.color} avatar={p.avatar} size={30} radius={10} />
+            </button>
           {/each}
         </div>
       </div>
     {:else if mode === "cams"}
       <div class="cams">
-        {#each roomies as p, i (p.userId)}
+        {#each cams as p, i (p.userId)}
           <div class="cam" class:speaking={speaking(p)} style="--i:{i}">
             {#if camOf(p)}
               <video use:videoStream={camOf(p)} autoplay playsinline muted={p.me}></video>
@@ -185,21 +200,49 @@
           </div>
         {/each}
       </div>
+      {#if quiet.length}
+        <div class="quiet-strip">
+          {#each quiet as p (p.userId)}
+            <button
+              class="quiet-node"
+              class:speaking={speaking(p)}
+              style="--lv:{levelOf(p).toFixed(2)}"
+              title={p.name}
+              on:contextmenu={(e) => menu(e, p)}
+            >
+              <Avatar name={p.name} color={p.color} avatar={p.avatar} size={40} radius={13} />
+              {#if p.muted}<i class="quiet-mute"><MicOff size={11} strokeWidth={2.4} /></i>{/if}
+              <span class="quiet-name">{p.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
     {:else}
-      <div class="ring" data-n={roomies.length}>
-        <div class="orb" class:active={roomies.some(speaking)}>
-          <span class="orb-ring"></span>
-          <span class="orb-ring r2"></span>
-          <span class="orb-core"></span>
+      <div class="orbit" data-n={roomies.length}>
+        <div class="orbit-hub" style="--lv:{peak.toFixed(2)}">
+          <span class="hub-halo"></span>
+          <span class="hub-halo h2"></span>
+          <span class="hub-core">
+            <b>{roomies.length}</b>
+            <em>{plural(roomies.length, "голос", "голоса", "голосов")}</em>
+          </span>
         </div>
         {#each roomies as p, i (p.userId)}
-          <div class="seat" class:speaking={speaking(p)} style="--a:{(360 / Math.max(roomies.length, 1)) * i - 90}deg">
-            <span class="seat-av" style="background:{p.color || '#c8ff3d'}">
-              {initial(p.name)}
-              {#if p.muted}<i class="seat-mute"><MicOff size={13} strokeWidth={2} /></i>{/if}
-            </span>
-            <span class="seat-name">{p.name}{p.me ? " · ты" : ""}</span>
-          </div>
+          <button
+            class="node"
+            class:speaking={speaking(p)}
+            class:me={p.me}
+            style="--a:{(360 / Math.max(roomies.length, 1)) * i - 90}deg; --lv:{levelOf(p).toFixed(2)}"
+            title={p.name}
+            on:contextmenu={(e) => menu(e, p)}
+          >
+            <span class="node-halo"></span>
+            <span class="node-bars"><i></i><i></i><i></i><i></i><i></i></span>
+            <Avatar name={p.name} color={p.color} avatar={p.avatar} size={62} radius={22} />
+            {#if p.muted}<i class="node-mute"><MicOff size={12} strokeWidth={2.4} /></i>{/if}
+            {#if p.deafened}<i class="node-deaf"><HeadphoneOff size={12} strokeWidth={2.4} /></i>{/if}
+            <span class="node-name">{p.name}{p.me ? " · ты" : ""}</span>
+          </button>
         {/each}
         {#if roomies.length <= 1}
           <p class="room-empty">тут пока никого · позови своих</p>
@@ -230,4 +273,3 @@
     </button>
   </div>
 </div>
-

@@ -81,6 +81,36 @@ test("настройки: имя меняется и видно в чате", as
   await page.locator(".msg .msg-head .name", { hasText: "Артём К" }).waitFor();
 });
 
+test("вход: логин отдельно от имени, по логину и после переименования", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const page = await browser.newPage();
+  await page.goto(`${base}/?server=${encodeURIComponent(harness.apiBase)}`);
+  await page.getByRole("button", { name: "У меня инвайт" }).click();
+  await page.getByLabel("Код приглашения").fill(invite);
+  await page.getByLabel("Логин").fill("artem");
+  await page.getByLabel("Имя в чате").fill("Артём");
+  await page.getByLabel("Пароль").fill("secret123");
+  await page.getByRole("button", { name: "Создать аккаунт" }).click();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
+
+  await page.locator(".profile-btn").click();
+  await page.locator("#setName").fill("Артём К");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await page.getByText("сохранено").waitFor();
+  await page.getByRole("button", { name: "Выйти из аккаунта" }).click();
+
+  await page.getByLabel("Логин").fill("artem");
+  await page.getByLabel("Пароль").fill("secret123");
+  await page.getByRole("button", { name: "Войти" }).click();
+  await page.locator(".chan.active", { hasText: "general" }).waitFor();
+  await page.getByPlaceholder("Написать в #general").fill("после переименования");
+  await page.getByPlaceholder("Написать в #general").press("Enter");
+  await page.locator(".msg .msg-head .name", { hasText: "Артём К" }).waitFor();
+});
+
 test("настройки: аватар загружается и появляется в панели", async (t) => {
   await startServer();
   const browser = await chromium.launch();
@@ -131,7 +161,7 @@ test("настройки сервера: роль создаётся и назн
   if (await guest.locator(".stage.hide-members").count()) {
     await guest.locator(".icon-btn[aria-label='Участники']").click();
   }
-  await guest.locator(".mem-act", { hasText: "Дизайнер" }).waitFor({ timeout: 10000 });
+  await guest.locator(".mem-group h3", { hasText: "дизайнер" }).waitFor({ timeout: 10000 });
 });
 
 test("настройки сервера: канал создаётся, переименовывается и удаляется", async (t) => {

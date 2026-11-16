@@ -29,6 +29,7 @@
     "directories": {
       "output": "out"
     },
+    "afterPack": "scripts/afterPack.cjs",
     "files": [
       "dist/**/*",
       "electron/**/*"

@@ -166,7 +166,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: false,
+      backgroundThrottling: true,
     },
   });
 
@@ -185,7 +185,13 @@ function createWindow() {
     unread = 0;
     win.flashFrame(false);
     refreshTray();
+    send("win:focus-state", true);
   });
+
+  win.on("blur", () => send("win:focus-state", false));
+  win.on("minimize", () => send("win:focus-state", false));
+  win.on("restore", () => send("win:focus-state", win.isFocused()));
+  win.on("show", () => send("win:focus-state", win.isFocused()));
 
   win.on("maximize", () => send("win:maximized", true));
   win.on("unmaximize", () => send("win:maximized", false));
@@ -209,9 +215,26 @@ function closeNotify() {
 
 let notifyAction = null;
 
+function showNativeNotify(payload) {
+  if (!Notification.isSupported()) return false;
+  const toast = new Notification({
+    title: payload.mention ? `${payload.name} упомянул тебя` : payload.name,
+    body: payload.text,
+    silent: true,
+    timeoutType: "default",
+  });
+  toast.on("click", () => {
+    showWindow();
+    if (payload.channelId) send("notify:open", payload.channelId);
+  });
+  toast.show();
+  return true;
+}
+
 function showNotify(payload) {
   closeNotify();
   notifyAction = payload.action || null;
+  if (!payload.action && app.isPackaged && showNativeNotify(payload)) return;
   const area = screen.getPrimaryDisplay().workArea;
   const width = 360;
   const height = 104;
