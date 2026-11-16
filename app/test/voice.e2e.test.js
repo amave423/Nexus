@@ -468,3 +468,37 @@ test("голос: переход на другой сервер не выкид�
   await contextA.close();
   await contextB.close();
 });
+
+test("голос: меню участника даёт громкость до 200% и личный мьют", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+
+  await pageA.locator(".node", { hasText: "Мира" }).click({ button: "right" });
+  const menu = pageA.locator(".umenu");
+  await menu.waitFor({ timeout: 5000 });
+  assert.match(await menu.locator(".umenu-vol-head b").innerText(), /100%/);
+
+  await menu.locator(".umenu-range").evaluate((el) => {
+    el.value = "200";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await pageA.locator(".umenu-vol-head b", { hasText: "200%" }).waitFor({ timeout: 5000 });
+
+  await pageA.locator(".umenu-btn", { hasText: "Заглушить у себя" }).click();
+  await pageA.locator(".umenu-btn", { hasText: "Включить звук" }).waitFor({ timeout: 5000 });
+
+  await contextA.close();
+  await contextB.close();
+});

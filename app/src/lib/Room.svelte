@@ -88,7 +88,7 @@
   function menu(event, person) {
     if (person.me) return;
     event.preventDefault();
-    dispatch("menu", { member: person, event });
+    dispatch("menu", { member: { ...person, id: person.userId }, event });
   }
 
   onMount(() => {

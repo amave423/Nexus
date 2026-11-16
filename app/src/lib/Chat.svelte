@@ -185,8 +185,8 @@
     userMenu = { member, x: event.clientX, y: event.clientY };
   }
 
-  const memberVolume = (id) => vs.volumes?.get(id) ?? 1;
-  const memberMuted = (id) => !!vs.silent?.has(id);
+  $: menuVolume = userMenu ? ((vs.volumes?.get(userMenu.member.id) ?? 1) * 100) : 100;
+  $: menuMuted = userMenu ? !!vs.silent?.has(userMenu.member.id) : false;
 
   function watchVoice(next) {
     if (!next.channelId) {
@@ -1380,10 +1380,10 @@
     member={userMenu.member}
     x={userMenu.x}
     y={userMenu.y}
-    volume={memberVolume(userMenu.member.id) * 100}
-    muted={memberMuted(userMenu.member.id)}
+    volume={menuVolume}
+    muted={menuMuted}
     onVolume={(value) => voice?.setUserVolume(userMenu.member.id, value)}
-    onMute={() => voice?.setUserMuted(userMenu.member.id, !memberMuted(userMenu.member.id))}
+    onMute={() => voice?.setUserMuted(userMenu.member.id, !menuMuted)}
     onClose={() => (userMenu = null)}
   />
 {/if}
