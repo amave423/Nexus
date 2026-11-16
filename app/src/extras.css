@@ -1740,18 +1740,37 @@ body {
 .mention-login { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-left: auto; }
 
 /* ── читаемость: мелкий шрифт крупнее ────────────────────── */
-.stage .mem-act { font-size: 11.5px; }
-.stage .mem-name { font-size: 13.5px; }
-.stage .mem-group h3 { font-size: 10.5px; }
-.stage .chan-group, .stage .chan-rail-head, .stage .chan-count { font-size: 11px; }
+.stage .mem-act { font-size: 12.5px; color: #9c9cab; }
+.stage .mem-name { font-size: 14px; }
+.stage .mem-head { font-size: 11.5px; letter-spacing: .1em; }
+.stage .mem-head .count { font-size: 11.5px; }
+.stage .mem-group h3 { font-size: 11.5px; letter-spacing: .08em; }
+.stage .chan-group, .stage .chan-rail-head { font-size: 11.5px; letter-spacing: .1em; }
+.stage .chan-count { font-size: 10.5px; }
 .stage .peer-name { font-size: 13px; }
 .stage .chan .nm, .stage .channel-item .nm { font-size: 13.5px; }
-.stage .room-meta { font-size: 10.5px; }
-.stage .room-timer { font-size: 11.5px; }
-.stage .net-val { font-size: 12px; }
-.stage .typing { font-size: 12px; }
+.stage .room-meta { font-size: 11px; }
+.stage .room-timer { font-size: 12px; }
+.stage .net-val { font-size: 12.5px; }
+.stage .typing { font-size: 12.5px; }
 .stage .empty, .stage .older, .stage .panel-hint { font-size: 13px; }
 .set-field small { font-size: 12px; }
+.umenu-vol-head span { font-size: 11px; }
+.umenu-vol-head b { font-size: 12.5px; }
+.umenu-who b { font-size: 13.5px; }
+.umenu-who span { font-size: 11px; }
+.umenu-btn { font-size: 13px; }
+.umenu-quick button { font-size: 11.5px; }
+.mention-name { font-size: 13.5px; }
+.mention-login { font-size: 11px; }
+
+/* выпадающий список вверх, когда снизу не хватает места */
+.dd.up .dd-list {
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform: translateY(4px) scale(.98);
+}
+.dd.up.open .dd-list { transform: none; }
 
 /* экономим CPU: анимации стоят, пока окно не видно */
 body.idle .orbit-hub *, body.idle .node-bars i, body.idle .wave i,

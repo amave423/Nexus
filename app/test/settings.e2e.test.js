@@ -111,6 +111,22 @@ test("вход: логин отдельно от имени, по логину �
   await page.locator(".msg .msg-head .name", { hasText: "Артём К" }).waitFor();
 });
 
+test("настройки: список шумоподавления выбирается и на 1280x720", async (t) => {
+  await startServer();
+  const browser = await chromium.launch();
+  t.after(() => stopAll(browser));
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  await register(page, { name: "Илья" });
+
+  await page.locator(".profile-btn").click();
+  await page.getByRole("button", { name: "Голос и видео" }).click();
+  const row = page.locator(".set-row", { hasText: "Шумоподавление" });
+  await row.locator(".dd-btn").click();
+  await page.locator(".dd-opt", { hasText: "Браузерный · лёгкий" }).click({ timeout: 4000 });
+  assert.match(await row.locator(".dd-btn").innerText(), /Браузерный/, "вариант выбрался настоящим кликом");
+});
+
 test("настройки: аватар загружается и появляется в панели", async (t) => {
   await startServer();
   const browser = await chromium.launch();

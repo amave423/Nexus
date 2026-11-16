@@ -8,11 +8,29 @@
 
   const dispatch = createEventDispatcher();
   let open = false;
+  let up = false;
+  let maxHeight = 230;
+  let el = null;
 
   function pick(option) {
     value = option;
     open = false;
     dispatch("change", option);
+  }
+
+  function measure() {
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const need = Math.min(230, options.length * 32 + 12);
+    const below = window.innerHeight - box.bottom - 14;
+    const above = box.top - 14;
+    up = below < need && above > below;
+    maxHeight = Math.max(92, Math.min(need, up ? above : below));
+  }
+
+  function toggle() {
+    open = !open;
+    if (open) requestAnimationFrame(measure);
   }
 
   function onWindowClick(event) {
@@ -21,14 +39,14 @@
   }
 </script>
 
-<svelte:window on:click={onWindowClick} />
+<svelte:window on:click={onWindowClick} on:resize={measure} on:scroll={measure} />
 
-<div class="dd" class:open class:wide>
-  <button class="dd-btn" type="button" on:click|stopPropagation={() => (open = !open)}>
+<div class="dd" class:open class:wide class:up bind:this={el}>
+  <button class="dd-btn" type="button" on:click|stopPropagation={toggle}>
     <span>{value || "—"}</span>
     <ChevronDown size={15} strokeWidth={2} />
   </button>
-  <div class="dd-list">
+  <div class="dd-list" style="max-height:{maxHeight}px">
     {#each options as option (option)}
       <button
         class="dd-opt"
