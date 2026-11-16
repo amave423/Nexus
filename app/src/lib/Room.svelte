@@ -60,6 +60,7 @@
   $: volOf = (p) => Math.round(((vs.volumes?.get(p.userId) ?? 1) * 100));
   $: mutedOf = (p) => !!vs.silent?.has(p.userId);
   $: peak = roomies.reduce((top, p) => (p.muted ? top : Math.max(top, levelOf(p))), 0);
+  $: tile = roomies.length <= 2 ? 104 : roomies.length <= 4 ? 86 : roomies.length <= 6 ? 76 : 68;
 
   function videoStream(node, stream) {
     const attach = (s) => {
@@ -210,7 +211,7 @@
               title={p.name}
               on:contextmenu={(e) => menu(e, p)}
             >
-              <Avatar name={p.name} color={p.color} avatar={p.avatar} size={40} radius={13} />
+              <Avatar name={p.name} color={p.color} avatar={p.avatar} size={46} radius={15} />
               {#if p.muted}<i class="quiet-mute"><MicOff size={11} strokeWidth={2.4} /></i>{/if}
               <span class="quiet-name">{p.name}</span>
             </button>
@@ -232,13 +233,13 @@
             class="node"
             class:speaking={speaking(p)}
             class:me={p.me}
-            style="--a:{(360 / Math.max(roomies.length, 1)) * i - 90}deg; --lv:{levelOf(p).toFixed(2)}"
+            style="--a:{(360 / Math.max(roomies.length, 1)) * i - 90}deg; --lv:{levelOf(p).toFixed(2)}; --tile:{tile}px"
             title={p.name}
             on:contextmenu={(e) => menu(e, p)}
           >
             <span class="node-halo"></span>
             <span class="node-bars"><i></i><i></i><i></i><i></i><i></i></span>
-            <Avatar name={p.name} color={p.color} avatar={p.avatar} size={62} radius={22} />
+            <Avatar name={p.name} color={p.color} avatar={p.avatar} size={tile} radius={Math.round(tile * 0.34)} />
             {#if p.muted}<i class="node-mute"><MicOff size={12} strokeWidth={2.4} /></i>{/if}
             {#if p.deafened}<i class="node-deaf"><HeadphoneOff size={12} strokeWidth={2.4} /></i>{/if}
             <span class="node-name">{p.name}{p.me ? " · ты" : ""}</span>

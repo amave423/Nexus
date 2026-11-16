@@ -136,6 +136,16 @@ test("чат: картинка загружается и показываетс�
   const loaded = await image.evaluate((img) => img.complete && img.naturalWidth > 0);
   assert.equal(loaded, true, "картинка реально загрузилась по токену");
 
+  await page.locator(".attach.shot").first().click();
+  await page.locator(".lightbox").waitFor({ timeout: 10000 });
+  assert.equal(await page.locator(".lightbox-zoom").innerText(), "50%", "фото открывается на 50%");
+  for (let i = 0; i < 6; i += 1) {
+    const less = page.getByRole("button", { name: "Отдалить" });
+    if (await less.isDisabled()) break;
+    await less.click();
+  }
+  assert.equal(await page.locator(".lightbox-zoom").innerText(), "20%", "минимальный масштаб — 20%");
+
   rmSync(dir, { recursive: true, force: true });
 });
 

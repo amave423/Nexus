@@ -8,8 +8,9 @@
   export let dot = null;
 
   $: initial = (name || "?").trim().slice(0, 2).toUpperCase();
-  $: style = `width:${size}px;height:${size}px;border-radius:${radius}px;font-size:${Math.round(
-    size * 0.36
+  $: style = `width:${size}px;height:${size}px;border-radius:${radius}px;font-size:${Math.max(
+    9,
+    Math.round(size * (size >= 48 ? 0.33 : 0.3))
   )}px;background:${avatar ? "transparent" : color}`;
 </script>
 
