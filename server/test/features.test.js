@@ -168,3 +168,25 @@ test("custom emoji: member can view but cannot manage; owner registers only own-
   assert.equal(existsSync(join(c.uploadDir,fileName)),false);
   await c.app.close(); rmSync(c.uploadDir,{recursive:true,force:true});
 });
+
+test("место сервера: состояние отдаёт занятые байты и они растут с загрузкой", async () => {
+  const c = await setup();
+  const url = `/api/spaces/${c.space.id}/state`;
+  const before = await c.app.inject({ method: "GET", url, headers: auth(c.owner.token) });
+  assert.equal(before.statusCode, 200);
+  assert.equal(before.json().space.mediaUsed, 0, "новый сервер ничего не занимает");
+  assert.ok(before.json().space.mediaQuota > 0, "квота видна клиенту");
+
+  const file = await upload(c.app, c.owner.token, c.space.id, 8192, "shot.png");
+  assert.equal(file.statusCode, 200);
+
+  const after = await c.app.inject({ method: "GET", url, headers: auth(c.owner.token) });
+  assert.ok(after.json().space.mediaUsed >= 8192, "загруженный файл занял место");
+
+  const other = await c.app.inject({ method: "GET", url, headers: auth(c.member.token) });
+  assert.equal(other.json().space.mediaUsed, after.json().space.mediaUsed, "любой участник видит то же место");
+
+  await c.app.close();
+  rmSync(c.uploadDir, { recursive: true, force: true });
+});
+

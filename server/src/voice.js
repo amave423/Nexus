@@ -27,7 +27,7 @@ const MEDIA_CODECS = [
   },
 ];
 
-const MAX_INCOMING = 4_000_000;
+const MAX_INCOMING = 32_000_000;
 
 export class VoiceError extends Error {
   constructor(code) {
@@ -288,7 +288,6 @@ export class Voice {
     const peer = this.peer(userId);
     if (kind !== "audio" && kind !== "video") throw new VoiceError("bad_kind");
     const src = source === "screen" ? "screen" : kind === "audio" ? "mic" : "camera";
-    if (kind === "audio" && src === "screen") throw new VoiceError("bad_source");
     const channel = this.channels.get(peer.channelId);
     for (const producer of peer.producers.values()) {
       if (producer.kind === kind && producer.appData.source === src)
@@ -304,7 +303,7 @@ export class Voice {
     producer.on("transportclose", () => producer.close());
     peer.producers.set(producer.id, producer);
     channel.producerOwner.set(producer.id, userId);
-    if (kind === "audio") {
+    if (kind === "audio" && src === "mic") {
       try {
         await channel.observer.addProducer({ producerId: producer.id });
       } catch {

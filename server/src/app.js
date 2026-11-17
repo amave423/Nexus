@@ -42,6 +42,11 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
     return { free, allocatable, allocated, used, remaining: Math.max(0, allocatable - used), defaultQuota: 1073741824 };
   };
   const bytesUsed = (spaceId) => Number(db.prepare("SELECT COALESCE(SUM(size),0) AS n FROM media WHERE space_id = ?").get(spaceId).n);
+  const spaceView = (spaceId, userId) => {
+    const space = spacesOf(userId).find((s) => s.id === spaceId);
+    if (!space) return null;
+    return { ...space, mediaUsed: bytesUsed(spaceId) };
+  };
   const remainingGlobal = () => Math.max(0, Math.floor(initialDiskFree * 0.8) - Number(db.prepare("SELECT COALESCE(SUM(size),0) AS n FROM media").get().n));
   const reclaimMedia = (spaceId, needed) => {
     let used = bytesUsed(spaceId);
@@ -307,7 +312,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   };
 
   const stateOf = (spaceId, userId) => {
-    const space = spacesOf(userId).find((s) => s.id === spaceId);
+    const space = spaceView(spaceId, userId);
     if (!space) return null;
     return {
       space,
@@ -701,6 +706,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
 
     const message = messageRow(messageId, req.user.id);
     hub.broadcastSpace(spaceId, { t: "message", message });
+    if (files.length) hub.broadcastSpace(spaceId, { t: "space.usage", spaceId, mediaUsed: bytesUsed(spaceId) });
     return { message };
   });
 
@@ -960,9 +966,8 @@ if (shown) reply.header("content-disposition", (SHOW.test(known) ? "inline" : "a
         spaceId
       );
     }
-    const space = spacesOf(req.user.id).find((s) => s.id === spaceId);
-    if (space) space.mediaQuota = Number(db.prepare("SELECT media_quota FROM spaces WHERE id=?").get(spaceId).media_quota);
-    hub.broadcastSpace(spaceId, { t: "space.update", space });
+    const space = spaceView(spaceId, req.user.id);
+    if (space) hub.broadcastSpace(spaceId, { t: "space.update", space });
     return { space };
   });
 
