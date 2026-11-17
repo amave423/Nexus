@@ -113,13 +113,8 @@ test("голос: два клиента слышат друг друга в ка
   const noise = await pageA.evaluate(() => window.__nexusVoice.state.noise);
   assert.equal(noise, "rnnoise", "шумодав RNNoise загрузился, а не отвалился в браузерный");
 
-  const liveTracks = await pageA.evaluate(() =>
-    [...document.querySelectorAll("audio")].map((node) => ({
-      tracks: node.srcObject ? node.srcObject.getAudioTracks().length : 0,
-      live: node.srcObject ? node.srcObject.getAudioTracks().every((tr) => tr.readyState === "live") : false,
-    }))
-  );
-  assert.ok(liveTracks.some((item) => item.tracks === 1 && item.live), "звук собеседника играет");
+  const routed = await pageA.evaluate(() => window.__nexusVoice.audioDebug());
+  assert.ok(routed.some((item) => (item.gain ?? item.volume) > 0), "звук собеседника играет");
 
   await pageA.locator(".room").getByTitle("Микрофон").click();
   await pageB.locator(".node-mute").first().waitFor({ timeout: 10000 });
@@ -233,14 +228,11 @@ test("голос: звук не пропадает при переходе в т
   await pageA.getByPlaceholder("Написать в #general").waitFor({ timeout: 10000 });
   assert.equal(await pageA.locator(".room").count(), 0, "комната закрыта, открыт чат");
 
-  const live = await pageA.evaluate(() =>
-    [...document.querySelectorAll("audio")].map((node) => ({
-      tracks: node.srcObject ? node.srcObject.getAudioTracks().length : 0,
-      live: node.srcObject ? node.srcObject.getAudioTracks().every((tr) => tr.readyState === "live") : false,
-      muted: node.muted,
-    }))
+  const live = await pageA.evaluate(() => window.__nexusVoice.audioDebug());
+  assert.ok(
+    live.length > 0 && live.some((item) => (item.gain ?? item.volume) > 0),
+    "звук собеседника продолжает играть в текстовом канале"
   );
-  assert.ok(live.some((item) => item.tracks === 1 && item.live), "звук собеседника продолжает играть в текстовом канале");
 
   const before = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
   await pageA.waitForTimeout(2000);
@@ -485,7 +477,7 @@ test("голос: меню участника даёт громкость до 2
   await joinVoice(pageA);
   await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
 
-  await pageA.locator(".node", { hasText: "Мира" }).click({ button: "right" });
+  await pageA.locator('.node[title="Мира"]').click({ button: "right" });
   const menu = pageA.locator(".umenu");
   await menu.waitFor({ timeout: 5000 });
   assert.match(await menu.locator(".umenu-vol-head b").innerText(), /100%/);
@@ -496,8 +488,35 @@ test("голос: меню участника даёт громкость до 2
   });
   await pageA.locator(".umenu-vol-head b", { hasText: "200%" }).waitFor({ timeout: 5000 });
 
+  const loud = await pageA.evaluate(() => window.__nexusVoice.audioDebug());
+  assert.ok(
+    loud.some(
+      (item) => item.volumeSet === 2 && (item.gain === null ? item.volume === 1 : Math.abs(item.gain - 2) < 0.05)
+    ),
+    "громкость 200% доехала до звука"
+  );
+
+  await menu.locator(".umenu-range").evaluate((el) => {
+    el.value = "30";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const quiet = await pageA.evaluate(() => window.__nexusVoice.audioDebug());
+  assert.ok(
+    quiet.some(
+      (item) => item.volumeSet === 0.3 && (item.gain === null ? Math.abs(item.volume - 0.3) < 0.01 : Math.abs(item.gain - 0.3) < 0.01)
+    ),
+    "громкость 30% тоже применяется"
+  );
+
   await pageA.locator(".umenu-btn", { hasText: "Заглушить у себя" }).click();
   await pageA.locator(".umenu-btn", { hasText: "Включить звук" }).waitFor({ timeout: 5000 });
+
+  const hushed = await pageA.evaluate(() => window.__nexusVoice.audioDebug());
+  assert.ok(hushed.some((item) => item.silent), "личный мьют отмечен");
+  assert.ok(
+    hushed.every((item) => item.gain === null || item.gain === 0),
+    "личный мьют глушит звук до нуля"
+  );
 
   await contextA.close();
   await contextB.close();

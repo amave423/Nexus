@@ -2,7 +2,7 @@
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { prefs } from "./prefs.js";
   import Avatar from "./Avatar.svelte";
-  import { Mic, MicOff, Headphones, HeadphoneOff, Video, MonitorUp, PhoneOff, Expand, SlidersHorizontal, Volume2, VolumeX } from "@lucide/svelte";
+  import { Mic, MicOff, Headphones, HeadphoneOff, Video, MonitorUp, PhoneOff, Expand } from "@lucide/svelte";
 
   export let channel;
   export let user;
@@ -15,7 +15,6 @@
   let seconds = 0;
   let timer = null;
   let feedEl = null;
-  let mixOpen = false;
 
   const plural = (n, one, few, many) => {
     const m = n % 100;
@@ -57,8 +56,6 @@
   $: viewers = Math.max(0, roomies.length - 1);
   $: levelOf = (p) => (p.me ? vs.micLevel : vs.levels.get(p.userId) || 0);
   $: speaking = (p) => !p.muted && levelOf(p) > 0.06;
-  $: volOf = (p) => Math.round(((vs.volumes?.get(p.userId) ?? 1) * 100));
-  $: mutedOf = (p) => !!vs.silent?.has(p.userId);
   $: peak = roomies.reduce((top, p) => (p.muted ? top : Math.max(top, levelOf(p))), 0);
   $: tile = roomies.length <= 2 ? 104 : roomies.length <= 4 ? 86 : roomies.length <= 6 ? 76 : 68;
 
@@ -117,41 +114,6 @@
     <div class="mic-warn">
       <span>Микрофон недоступен — тебя не слышно</span>
       <button class="mini" on:click={() => voice.requestMic()}>Включить</button>
-    </div>
-  {/if}
-
-  {#if mixOpen && roomies.length}
-    <div class="mix">
-      {#each roomies as p (p.userId)}
-        <div class="mix-row">
-          <Avatar name={p.name} color={p.color} avatar={p.avatar} size={26} radius={8} />
-          <span class="mix-name">{p.name}{p.me ? " · ты" : ""}</span>
-          {#if !p.me}
-            <button
-              class="mix-btn"
-              class:off={mutedOf(p)}
-              title={mutedOf(p) ? "Включить звук участника" : "Выключить звук участника"}
-              aria-label={mutedOf(p) ? "Включить звук участника" : "Выключить звук участника"}
-              on:click={() => voice.setUserMuted(p.userId, !mutedOf(p))}
-            >
-              {#if mutedOf(p)}<VolumeX size={16} strokeWidth={1.8} />{:else}<Volume2 size={16} strokeWidth={1.8} />{/if}
-            </button>
-            <input
-              class="mix-range"
-              type="range"
-              min="0"
-              max="200"
-              value={volOf(p)}
-              style="--fill:{volOf(p) / 2}%"
-              aria-label={`Громкость ${p.name}`}
-              on:input={(e) => voice.setUserVolume(p.userId, +e.currentTarget.value / 100)}
-            />
-            <span class="mix-val">{volOf(p)}%</span>
-          {:else}
-            <span class="mix-name dim">это ты</span>
-          {/if}
-        </div>
-      {/each}
     </div>
   {/if}
 
@@ -219,15 +181,14 @@
         </div>
       {/if}
     {:else}
-      <div class="orbit" data-n={roomies.length}>
-        <div class="orbit-hub" style="--lv:{peak.toFixed(2)}">
-          <span class="hub-halo"></span>
-          <span class="hub-halo h2"></span>
-          <span class="hub-core">
-            <b>{roomies.length}</b>
-            <em>{plural(roomies.length, "голос", "голоса", "голосов")}</em>
-          </span>
-        </div>
+      <div class="orbit" data-n={roomies.length} style="--peak:{peak.toFixed(2)}">
+        <span class="orbit-rings"></span>
+        <span class="orbit-core">
+          <i class="core-blob b2"></i>
+          <i class="core-blob"></i>
+          <i class="core-wave w1"></i>
+          <i class="core-wave w2"></i>
+        </span>
         {#each roomies as p, i (p.userId)}
           <button
             class="node"
@@ -237,12 +198,10 @@
             title={p.name}
             on:contextmenu={(e) => menu(e, p)}
           >
-            <span class="node-halo"></span>
-            <span class="node-bars"><i></i><i></i><i></i><i></i><i></i></span>
-            <Avatar name={p.name} color={p.color} avatar={p.avatar} size={tile} radius={Math.round(tile * 0.34)} />
+            <span class="node-glow"></span>
+            <Avatar name={p.name} color={p.color} avatar={p.avatar} size={tile} radius={Math.round(tile * 0.36)} />
             {#if p.muted}<i class="node-mute"><MicOff size={12} strokeWidth={2.4} /></i>{/if}
             {#if p.deafened}<i class="node-deaf"><HeadphoneOff size={12} strokeWidth={2.4} /></i>{/if}
-            <span class="node-name">{p.name}{p.me ? " · ты" : ""}</span>
           </button>
         {/each}
         {#if roomies.length <= 1}
@@ -264,9 +223,6 @@
     </button>
     <button class="rbtn" class:on={vs.stream} on:click={toggleScreen} title="Демонстрация экрана">
       <MonitorUp size={17} strokeWidth={1.8} />
-    </button>
-    <button class="rbtn" class:on={mixOpen} on:click={() => (mixOpen = !mixOpen)} title="Громкость участников">
-      <SlidersHorizontal size={17} strokeWidth={1.8} />
     </button>
     <button class="rbtn leave" on:click={() => voice.leave()}>
       <PhoneOff size={17} strokeWidth={1.8} />

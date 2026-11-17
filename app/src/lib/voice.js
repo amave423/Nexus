@@ -40,7 +40,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const rosters = new Map();
   const levels = new Map();
   const sinks = new Map();
-  const gains = new Map();
+  const nodes = new Map();
   const volumes = new Map();
   const silent = new Set();
   let mixCtx = null;
@@ -126,14 +126,28 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function applyUserAudio(userId) {
+    const level = volumes.has(userId) ? volumes.get(userId) : 1;
+    const muted = state.deafened || testHold || silent.has(userId);
+    const node = nodes.get(userId);
+    if (node) {
+      node.gain.gain.value = muted ? 0 : level;
+      return;
+    }
     const el = sinks.get(userId);
     if (!el) return;
-    const level = volumes.has(userId) ? volumes.get(userId) : 1;
-    const gain = gains.get(userId);
-    if (gain) el.volume = 1;
-    else el.volume = Math.max(0, Math.min(1, level));
-    if (gain) gain.gain.value = level;
-    el.muted = state.deafened || testHold || silent.has(userId);
+    el.muted = muted;
+    el.volume = Math.max(0, Math.min(1, level));
+  }
+
+  function audioDebug() {
+    const ids = new Set([...nodes.keys(), ...sinks.keys()]);
+    return [...ids].map((userId) => ({
+      userId,
+      gain: nodes.get(userId) ? nodes.get(userId).gain.gain.value : null,
+      volume: sinks.get(userId) ? sinks.get(userId).volume : null,
+      volumeSet: volumes.has(userId) ? volumes.get(userId) : 1,
+      silent: silent.has(userId) || state.deafened,
+    }));
   }
 
   function setUserVolume(userId, value) {
@@ -149,6 +163,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       mixCtx = new AudioContext({ latencyHint: "interactive" });
       mixBus = mixCtx.createGain();
       mixBus.connect(mixCtx.destination);
+      applyOutput(settings());
+      resumeMix();
     } catch {
       mixCtx = null;
       mixBus = null;
@@ -159,6 +175,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function resumeMix() {
     if (mixCtx && mixCtx.state === "suspended") mixCtx.resume().catch(() => {});
   }
+
+  document.addEventListener("pointerdown", resumeMix, { passive: true });
+  document.addEventListener("keydown", resumeMix);
 
   function setUserMuted(userId, muted) {
     if (muted) silent.add(userId);
@@ -176,18 +195,6 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       el.dataset.voice = String(userId);
       document.body.appendChild(el);
       sinks.set(userId, el);
-      const ctx = mix();
-      if (ctx) {
-        try {
-          const gain = ctx.createGain();
-          gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
-          ctx.createMediaElementSource(el).connect(gain).connect(mixBus);
-          gains.set(userId, gain);
-          resumeMix();
-        } catch {
-          gains.delete(userId);
-        }
-      }
       applyOutput(settings());
     }
     return el;
@@ -343,6 +350,25 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function attachAudio(userId, stream) {
+    const known = nodes.get(userId);
+    if (known && known.stream === stream) return;
+    if (known) dropSink(userId);
+    const ctx = mix();
+    if (ctx && mixBus) {
+      try {
+        const source = ctx.createMediaStreamSource(stream);
+        const gain = ctx.createGain();
+        gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
+        source.connect(gain);
+        gain.connect(mixBus);
+        nodes.set(userId, { source, gain, stream });
+        resumeMix();
+        applyUserAudio(userId);
+        return;
+      } catch {
+        /* без WebAudio остаётся элемент */
+      }
+    }
     const el = sinkFor(userId);
     if (el.srcObject === stream) return;
     el.srcObject = stream;
@@ -351,16 +377,17 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function dropSink(userId) {
-    const el = sinks.get(userId);
-    const gain = gains.get(userId);
-    gains.delete(userId);
-    if (gain) {
+    const node = nodes.get(userId);
+    nodes.delete(userId);
+    if (node) {
       try {
-        gain.disconnect();
+        node.source.disconnect();
+        node.gain.disconnect();
       } catch {
         /* уже отключено */
       }
     }
+    const el = sinks.get(userId);
     if (!el) return;
     el.srcObject = null;
     el.remove();
@@ -612,7 +639,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     consumers.clear();
     remote.clear();
     levels.clear();
-    for (const userId of [...sinks.keys()]) dropSink(userId);
+    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) dropSink(userId);
     pendingProducers.length = 0;
     await stopMic();
     stopCamera({ silent: true });
@@ -698,7 +725,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         }).catch(() => {});
       }
     }
-    for (const userId of sinks.keys()) applyUserAudio(userId);
+    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) applyUserAudio(userId);
     publish();
     return true;
   }
@@ -706,7 +733,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   async function setDeafened(deafened, silent = false) {
     const changed = state.deafened !== deafened;
     state.deafened = deafened;
-    for (const userId of sinks.keys()) applyUserAudio(userId);
+    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) applyUserAudio(userId);
     pushState();
     if (changed && !silent) soundCue(deafened ? "deafen" : "undeafen");
   }
@@ -923,7 +950,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function reset() {
     for (const userId of remote.keys()) dropUser(userId);
-    for (const userId of [...sinks.keys()]) dropSink(userId);
+    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) dropSink(userId);
     rosters.clear();
     levels.clear();
     state.channelId = null;
@@ -959,6 +986,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     micTrack,
     micInfo,
     stats,
+    audioDebug,
     get state() {
       return state;
     },
