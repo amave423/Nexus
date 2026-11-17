@@ -521,3 +521,92 @@ test("голос: меню участника даёт громкость до 2
   await contextA.close();
   await contextB.close();
 });
+
+test("стрим: качество и кадры меняются на ходу и демонстрация не рвётся", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await pageA.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async (constraints) => {
+      const video = (constraints && constraints.video) || {};
+      const width = (video.width && video.width.ideal) || 1280;
+      const height = (video.height && video.height.ideal) || 720;
+      const fps = (video.frameRate && video.frameRate.ideal) || 15;
+      window.__screenAsk = { width, height, fps };
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      let hue = 0;
+      setInterval(() => {
+        hue = (hue + 6) % 360;
+        ctx.fillStyle = `hsl(${hue} 80% 50%)`;
+        ctx.fillRect(0, 0, width, height);
+      }, 100);
+      return canvas.captureStream(fps);
+    };
+  });
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageB.locator(".node").nth(1).waitFor({ timeout: 20000 });
+
+  await pageA.getByTitle("Демонстрация экрана").click();
+  await pageB.locator(".stream-view").waitFor({ timeout: 20000 });
+
+  const ask = await pageA.evaluate(() => window.__screenAsk);
+  assert.deepEqual(ask, { width: 1920, height: 1080, fps: 60 }, "по умолчанию 1080p при 60 к/с");
+
+  const mode = await pageA.evaluate(() => window.__nexusVoice.screenMode());
+  assert.deepEqual(
+    [mode.width, mode.height, mode.fps, mode.bitrate],
+    [1920, 1080, 60, 8000000],
+    "1080p/60 кодируется в 8 Мбит/с"
+  );
+
+  await pageA.locator('.profile-btn[aria-label="Настройки"]').click();
+  await pageA.getByRole("button", { name: "Голос и видео" }).click();
+  const resDd = pageA.locator(".dd").filter({ has: pageA.locator(".dd-btn", { hasText: "1080p" }) });
+  await resDd.locator(".dd-btn").click();
+  await resDd.locator(".dd-opt", { hasText: "1440p" }).click();
+  const fpsDd = pageA.locator(".dd").filter({ has: pageA.locator(".dd-btn", { hasText: "60 к/с" }) });
+  await fpsDd.locator(".dd-btn").click();
+  await fpsDd.locator(".dd-opt", { hasText: "120 к/с" }).click();
+  await pageA.keyboard.press("Escape");
+
+  const big = await pageA.evaluate(() => window.__nexusVoice.screenMode());
+  assert.deepEqual(
+    [big.width, big.height, big.fps, big.bitrate],
+    [2560, 1440, 120, 30000000],
+    "2560×1440 при 120 к/с идёт на 30 Мбит/с"
+  );
+
+  const deadline = Date.now() + 30000;
+  let alive = false;
+  while (Date.now() < deadline) {
+    alive = await pageB.evaluate(() =>
+      [...document.querySelectorAll(".stream-feed video")].some(
+        (node) => node.srcObject && node.srcObject.getVideoTracks().some((tr) => tr.readyState === "live")
+      )
+    );
+    if (alive) break;
+    await pageB.waitForTimeout(500);
+  }
+  assert.ok(alive, "после смены режима демонстрация продолжает играть у Миры");
+
+  await pageB.waitForTimeout(2500);
+  const stats = await audioBytes(pageB);
+  const screen = stats.find((item) => item.kind === "video" && item.source === "screen");
+  assert.ok(screen && screen.bytes > 0, "пакеты стрима идут и после смены режима");
+
+  await contextA.close();
+  await contextB.close();
+});

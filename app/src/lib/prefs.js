@@ -11,6 +11,13 @@ export const NOISE = {
 };
 
 export const SOUNDS = { "Мягкий": "soft", "Пинг": "ping", "Капля": "drop", "Аккорд": "chord" };
+
+export const STREAM_RES = {
+  "720p · 1280×720": "720",
+  "1080p · 1920×1080": "1080",
+  "1440p · 2560×1440": "1440",
+};
+export const STREAM_FPS = { "30 к/с": "30", "60 к/с": "60", "120 к/с": "120" };
 export const ACCENTS = [
   ["#c8ff3d", "кислота"],
   ["#6fe3ff", "лёд"],
@@ -44,6 +51,8 @@ export const DEFAULTS = {
   voiceMode: false,
   hotkeys: false,
   quality: "96 kbps",
+  streamRes: "1080",
+  streamFps: "60",
   keys: {
     mic: "Ctrl+M",
     deaf: "Ctrl+D",

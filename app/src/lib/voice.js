@@ -230,6 +230,10 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function applySettings(pref = settings() || {}) {
     applyOutput(pref);
     if (!state.joined || leaving) return;
+    if (state.stream && screenProducer && screenSignature(pref) !== screenSig) {
+      clearTimeout(screenTimer);
+      screenTimer = setTimeout(() => reencodeScreen().catch(() => {}), 400);
+    }
     if (audioSignature(pref) === micSignature) return;
     clearTimeout(applyTimer);
     applyTimer = setTimeout(() => {
@@ -803,10 +807,39 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     else await startCamera();
   }
 
+  const SCREEN = {
+    "720": { width: 1280, height: 720, bitrate: { "30": 2500000, "60": 4000000, "120": 6000000 } },
+    "1080": { width: 1920, height: 1080, bitrate: { "30": 5000000, "60": 8000000, "120": 12000000 } },
+    "1440": { width: 2560, height: 1440, bitrate: { "30": 10000000, "60": 18000000, "120": 30000000 } },
+  };
+  let screenSig = "";
+  let screenTimer = null;
+
+  function screenMode(pref = settings() || {}) {
+    const res = SCREEN[pref.streamRes] ? String(pref.streamRes) : "1080";
+    const fps = ["30", "60", "120"].includes(String(pref.streamFps)) ? String(pref.streamFps) : "60";
+    const preset = SCREEN[res];
+    return { res, width: preset.width, height: preset.height, fps: Number(fps), bitrate: preset.bitrate[fps] };
+  }
+
+  function screenSignature(pref = settings() || {}) {
+    const mode = screenMode(pref);
+    return `${mode.res}|${mode.fps}`;
+  }
+
+  function screenConstraints(mode) {
+    return {
+      width: { ideal: mode.width },
+      height: { ideal: mode.height },
+      frameRate: { ideal: mode.fps, max: mode.fps },
+    };
+  }
+
   async function startScreen() {
     if (screenProducer) return;
+    const mode = screenMode();
     screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 15, max: 15 } },
+      video: screenConstraints(mode),
       audio: false,
     });
     const track = screenStream.getVideoTracks()[0];
@@ -814,12 +847,32 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     screenProducer = await sendTransport.produce({
       track,
       appData: { source: "screen" },
-      encodings: [{ maxBitrate: 1800000 }],
+      encodings: [{ maxBitrate: mode.bitrate }],
     });
+    screenSig = screenSignature();
     state.stream = true;
     local.screen = new MediaStream([track]);
     pushState();
     soundCue("screen-on");
+  }
+
+  async function reencodeScreen() {
+    const track = screenStream?.getVideoTracks()[0];
+    if (!screenProducer || !track || !sendTransport) return;
+    const mode = screenMode();
+    await track.applyConstraints(screenConstraints(mode)).catch(() => {});
+    const old = screenProducer;
+    screenProducer = null;
+    old.close();
+    await request("voice.closeProducer", { producerId: old.id }).catch(() => {});
+    screenProducer = await sendTransport.produce({
+      track,
+      appData: { source: "screen" },
+      encodings: [{ maxBitrate: mode.bitrate }],
+    });
+    screenSig = screenSignature();
+    local.screen = new MediaStream([track]);
+    publish();
   }
 
   async function stopScreen({ silent = false } = {}) {
@@ -987,6 +1040,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     micInfo,
     stats,
     audioDebug,
+    screenMode,
     get state() {
       return state;
     },

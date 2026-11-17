@@ -58,6 +58,7 @@
   $: speaking = (p) => !p.muted && levelOf(p) > 0.06;
   $: peak = roomies.reduce((top, p) => (p.muted ? top : Math.max(top, levelOf(p))), 0);
   $: tile = roomies.length <= 2 ? 104 : roomies.length <= 4 ? 86 : roomies.length <= 6 ? 76 : 68;
+  $: streamMode = `${$prefs.streamRes}p · ${$prefs.streamFps} к/с`;
 
   function videoStream(node, stream) {
     const attach = (s) => {
@@ -133,7 +134,7 @@
         <div class="stream-badge"><span class="live-dot"></span>LIVE</div>
         <div class="stream-who">
           {drawer?.me ? "Ты стримишь" : `${drawer?.name} стримит`} · {viewers}
-          {plural(viewers, "смотрит", "смотрят", "смотрят")}
+          {plural(viewers, "смотрит", "смотрят", "смотрят")} · {streamMode}
         </div>
         <button class="fs-btn" on:click={fullscreen}>
           <Expand size={16} strokeWidth={1.8} />
