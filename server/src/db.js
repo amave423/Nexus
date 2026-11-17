@@ -138,6 +138,7 @@ const COLUMNS = [
   ["users", "login", "TEXT"],
   ["users", "about", "TEXT NOT NULL DEFAULT ''"],
   ["users", "status", "TEXT NOT NULL DEFAULT 'online'"],
+  ["spaces", "icon", "TEXT"],
   ["spaces", "media_quota", "INTEGER NOT NULL DEFAULT 1073741824"],
   ["invites", "expires_at", "INTEGER"],
   ["invites", "revoked", "INTEGER NOT NULL DEFAULT 0"],

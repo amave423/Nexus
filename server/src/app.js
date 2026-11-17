@@ -134,7 +134,7 @@ export function buildApp({ db, logger = false, voice: injectedVoice = null, uplo
   const spacesOf = (userId) =>
     db
       .prepare(
-        `SELECT s.id, s.name, s.description, s.owner_id AS ownerId, s.media_quota AS mediaQuota, m.role FROM spaces s
+        `SELECT s.id, s.name, s.description, s.icon, s.owner_id AS ownerId, s.media_quota AS mediaQuota, m.role FROM spaces s
          JOIN space_members m ON m.space_id = s.id
          WHERE m.user_id = ? ORDER BY s.id`
       )
@@ -948,6 +948,11 @@ if (shown) reply.header("content-disposition", (SHOW.test(known) ? "inline" : "a
       patch.name = name;
     }
     if (body.description !== undefined) patch.description = String(body.description).slice(0, 280);
+    if (body.icon !== undefined) {
+      const icon = body.icon === null ? null : String(body.icon);
+      if (icon !== null && !/^\/api\/files\/[A-Za-z0-9._-]+$/.test(icon)) return reply.code(400).send({ error: "bad_icon" });
+      patch.icon = icon;
+    }
     const keys = Object.keys(patch);
     if (keys.length) {
       db.prepare(`UPDATE spaces SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ?`).run(

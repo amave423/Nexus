@@ -343,3 +343,47 @@ test("владелец получает роль владельца, остал�
 
   await app.close();
 });
+
+test("фото сервера: владелец ставит и убирает, участник получает отказ", async () => {
+  const { app, headers, owner, guest, spaceId } = await setup();
+  const icon = "/api/files/0123456789abcdef.webp";
+
+  const denied = await app.inject({
+    method: "PATCH",
+    url: `/api/spaces/${spaceId}`,
+    headers: headers(guest),
+    payload: { icon },
+  });
+  assert.equal(denied.statusCode, 403, "участник не меняет фото сервера");
+
+  const bad = await app.inject({
+    method: "PATCH",
+    url: `/api/spaces/${spaceId}`,
+    headers: headers(owner),
+    payload: { icon: "https://evil.example/x.png" },
+  });
+  assert.equal(bad.statusCode, 400, "принимается только загруженный файл");
+
+  const set = await app.inject({
+    method: "PATCH",
+    url: `/api/spaces/${spaceId}`,
+    headers: headers(owner),
+    payload: { icon },
+  });
+  assert.equal(set.statusCode, 200);
+  assert.equal(set.json().space.icon, icon);
+
+  const boot = await app.inject({ method: "GET", url: "/api/bootstrap", headers: headers(guest) });
+  assert.equal(boot.json().space.icon, icon, "фото видно всем участникам");
+  assert.ok(boot.json().spaces.some((s) => s.icon === icon), "в списке серверов тоже");
+
+  const cleared = await app.inject({
+    method: "PATCH",
+    url: `/api/spaces/${spaceId}`,
+    headers: headers(owner),
+    payload: { icon: null },
+  });
+  assert.equal(cleared.statusCode, 200);
+  assert.equal(cleared.json().space.icon ?? null, null);
+  await app.close();
+});
