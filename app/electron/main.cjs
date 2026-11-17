@@ -12,7 +12,6 @@ const {
   net,
   session,
   desktopCapturer,
-  Notification,
 } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -70,9 +69,7 @@ function setupUpdates() {
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 6 * 60 * 60 * 1000);
 }
 
-ipcMain.handle("app:info", () => ({ version: app.getVersion(), packaged: app.isPackaged }));
-
-ipcMain.handle("update:check", async () => {
+ipcMain.handle("app:info", () => ({ version: app.getVersion(), packaged: app.isPackaged }));ipcMain.handle("update:check", async () => {
   if (!app.isPackaged) return { status: "dev" };
   try {
     await autoUpdater.checkForUpdates();
@@ -216,26 +213,9 @@ function closeNotify() {
 
 let notifyAction = null;
 
-function showNativeNotify(payload) {
-  if (!Notification.isSupported()) return false;
-  const toast = new Notification({
-    title: payload.mention ? `${payload.name} упомянул тебя` : payload.name,
-    body: payload.text,
-    silent: true,
-    timeoutType: "default",
-  });
-  toast.on("click", () => {
-    showWindow();
-    if (payload.channelId) send("notify:open", payload.channelId);
-  });
-  toast.show();
-  return true;
-}
-
 function showNotify(payload) {
   closeNotify();
   notifyAction = payload.action || null;
-  if (!payload.action && app.isPackaged && showNativeNotify(payload)) return;
   const area = screen.getPrimaryDisplay().workArea;
   const width = 360;
   const height = 104;
@@ -404,6 +384,7 @@ if (!gotLock) {
   app.on("second-instance", showWindow);
 
   app.whenReady().then(() => {
+    if (process.platform === "win32") app.setAppUserModelId("io.nexus.chat");
     const root = path.join(__dirname, "..", "dist");
     protocol.handle("app", (request) => {
       const url = new URL(request.url);

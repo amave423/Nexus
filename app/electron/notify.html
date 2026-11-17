@@ -101,8 +101,9 @@
         $("text").textContent = payload.text || "";
         $("tag").textContent = payload.channel ? `#${payload.channel}` : "nexus";
         const av = $("av");
-        if (payload.avatar) {
-          av.style.backgroundImage = `url("${payload.avatar}")`;
+        const picture = payload.avatarUrl || payload.avatar;
+        if (picture && String(picture).startsWith("http")) {
+          av.style.backgroundImage = `url("${picture}")`;
           av.textContent = "";
         } else {
           av.textContent = (payload.name || "?").slice(0, 2).toUpperCase();

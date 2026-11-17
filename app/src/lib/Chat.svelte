@@ -550,6 +550,7 @@
       text: message.text || "вложение",
       color: message.color,
       avatar: message.avatar,
+      avatarUrl: message.avatar ? fileUrl(message.avatar) : null,
       channelId: message.channelId,
       channel: channels.find((c) => c.id === message.channelId)?.name || "",
       accent: pref.accent,
@@ -865,6 +866,7 @@
   }
 
   function onHotkey(e) {
+    if (!prefs.get().hotkeys) return;
     const tag = e.target?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") {
       if (e.key === "Escape") e.target.blur();
@@ -945,8 +947,10 @@
       Notification.requestPermission().catch(() => {});
     }
     if (desktop) {
-      desktop.setHotkeys(prefs.get().keys);
-      desktop.onHotkey((action) => runAction(action));
+      desktop.setHotkeys(prefs.get().hotkeys ? prefs.get().keys : {});
+      desktop.onHotkey((action) => {
+        if (prefs.get().hotkeys) runAction(action);
+      });
       desktop.onTrayAction((action) => runAction(action));
       desktop.onFocusState?.((value) => (focused = value));
       desktop.onNotifyOpen((channelId) => {
@@ -954,7 +958,7 @@
         if (target) openChannel(target);
       });
       unsubscribePrefs = prefs.subscribe((p) => {
-        desktop.setHotkeys(p.keys);
+        desktop.setHotkeys(p.hotkeys ? p.keys : {});
         voice?.applySettings(p);
       });
     }
@@ -1075,10 +1079,11 @@
         <button
           class="coin"
           class:active={space?.id === s.id}
+          class:has-img={!!s.icon}
           title={s.name}
           on:click={() => switchSpace(s)}
         >
-          {s.name.slice(0, 1).toUpperCase()}
+          {#if s.icon}<img src={fileUrl(s.icon)} alt={s.name} />{:else}{s.name.slice(0, 1).toUpperCase()}{/if}
         </button>
       {/each}
       <button

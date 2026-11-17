@@ -103,6 +103,48 @@
     }
   }
 
+  async function setSpaceIcon(event) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file || !can("manage_server")) return;
+    settingsError = "";
+    if (!file.type.startsWith("image/")) {
+      settingsError = "Нужна картинка";
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      settingsError = "Картинка до 8 МБ";
+      return;
+    }
+    settingsBusy = true;
+    try {
+      const up = await upload(file, {}, space.id);
+      const data = await api(`/api/spaces/${space.id}`, { method: "PATCH", body: { icon: up.url } });
+      space = data.space;
+      dispatch("space", data.space);
+    } catch (e) {
+      settingsError =
+        e.code === "quota_full" || e.code === "disk_limit" ? "На сервере нет места" : e.message;
+    } finally {
+      settingsBusy = false;
+    }
+  }
+
+  async function clearSpaceIcon() {
+    settingsBusy = true;
+    settingsError = "";
+    try {
+      const data = await api(`/api/spaces/${space.id}`, { method: "PATCH", body: { icon: null } });
+      space = data.space;
+      dispatch("space", data.space);
+    } catch (e) {
+      settingsError = e.message;
+    } finally {
+      settingsBusy = false;
+    }
+  }
+
   async function createRole() {
     if (!newRole.name.trim()) return;
     try {
@@ -411,13 +453,26 @@
 
         {#if tab === "overview"}
           <div class="set-profile">
-            <span class="set-avatar" style="background:linear-gradient(150deg,var(--acid),color-mix(in srgb,var(--acid) 55%,#000))">
-              {space.name.slice(0, 1).toUpperCase()}
-            </span>
+            {#if can("manage_server")}
+              <label class="avatar-up srv-icon" title="Фото сервера">
+                {#if space.icon}<img src={fileUrl(space.icon)} alt={space.name} />{:else}<span class="srv-icon-ph">{space.name.slice(0, 1).toUpperCase()}</span>{/if}
+                <span class="avatar-up-hint">сменить</span>
+                <input type="file" accept="image/*" on:change={setSpaceIcon} hidden />
+              </label>
+            {:else if space.icon}
+              <span class="set-avatar srv-icon"><img src={fileUrl(space.icon)} alt={space.name} /></span>
+            {:else}
+              <span class="set-avatar" style="background:linear-gradient(150deg,var(--acid),color-mix(in srgb,var(--acid) 55%,#000))">
+                {space.name.slice(0, 1).toUpperCase()}
+              </span>
+            {/if}
             <div class="who">
               <b>{space.name}</b>
               <span>{members.length} участников · создан {fmtDate(space.createdAt)}</span>
             </div>
+            {#if space.icon && can("manage_server")}
+              <button class="ghost-btn" style="margin-left:auto" on:click={clearSpaceIcon} disabled={settingsBusy}>Убрать фото</button>
+            {/if}
           </div>
           <div class="set-field">
             <label for="srvName">Название сервера</label>

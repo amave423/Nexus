@@ -1,5 +1,6 @@
 <script>
   import Avatar from "./Avatar.svelte";
+  import VideoPlayer from "./VideoPlayer.svelte";
   import { fileUrl } from "./api.js";
 
   import { FaceSlightlySmiling, Reply, Pencil, Pin, Trash } from "@lucide/svelte";
@@ -120,7 +121,7 @@
               <span class="attach-meta"><b>{file.name}</b><span>{size(file.size)}</span></span>
             </button>
           {:else if isVideo(file)}
-            <video class="attach-video" src={fileUrl(file.url)} controls></video>
+            <VideoPlayer src={fileUrl(file.url)} name={file.name} />
           {:else if isAudio(file)}
             <audio class="attach-audio" src={fileUrl(file.url)} controls></audio>
           {:else}

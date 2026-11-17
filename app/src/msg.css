@@ -159,11 +159,146 @@
   white-space: nowrap;
 }
 
-.attach-video {
-  max-width: 380px;
+.vplayer {
+  position: relative;
+  width: min(520px, 100%);
   border-radius: 14px;
   border: 1px solid var(--line);
+  background: #040406;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.vplayer video {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
   background: #000;
+  cursor: pointer;
+  outline: none;
+}
+
+.vp-play-big {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--acid-rgb), 0.55);
+  background: rgba(8, 8, 10, 0.6);
+  backdrop-filter: blur(8px);
+  color: var(--acid);
+  transition: background 0.16s, transform 0.16s;
+}
+
+.vp-play-big:hover {
+  background: rgba(var(--acid-rgb), 0.18);
+  transform: translate(-50%, -50%) scale(1.06);
+}
+
+.vp-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 26px 10px 8px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82));
+  opacity: 1;
+  transition: opacity 0.22s;
+}
+
+.vplayer.idle .vp-bar { opacity: 0; }
+.vplayer.idle video { cursor: none; }
+
+.vp-seek {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin: 0 0 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--acid) 0 var(--fill, 0%), rgba(255, 255, 255, 0.18) var(--fill, 0%) 100%);
+  outline: none;
+  cursor: pointer;
+}
+
+.vp-seek::-webkit-slider-thumb,
+.vp-range::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--acid);
+  border: 0;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.vp-range {
+  width: 70px;
+  height: 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--acid) 0 var(--fill, 100%), rgba(255, 255, 255, 0.18) var(--fill, 100%) 100%);
+  outline: none;
+  cursor: pointer;
+}
+
+.vp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--txt-2);
+}
+
+.vp-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: none;
+  color: #e7e9ee;
+  transition: 0.16s;
+}
+
+.vp-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--acid);
+}
+
+.vp-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #cdd1da;
+  flex: 0 0 auto;
+}
+
+.vp-time i { font-style: normal; opacity: 0.45; }
+
+.vp-vol {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vp-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #9ba0ac;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .attach-audio {
@@ -273,10 +408,14 @@
 .lightbox-stage.dragging { cursor: grabbing; }
 
 .lightbox-stage img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
   transform-origin: center center;
   will-change: transform;
   pointer-events: none;

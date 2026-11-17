@@ -42,6 +42,7 @@ export const DEFAULTS = {
   echoCancel: true,
   autoGain: false,
   voiceMode: false,
+  hotkeys: false,
   quality: "96 kbps",
   keys: {
     mic: "Ctrl+M",

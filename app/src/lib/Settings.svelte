@@ -630,6 +630,10 @@
         {/if}
 
         {#if tab === "keys"}
+          <div class="set-row">
+            <div class="set-row-t"><b>Горячие клавиши</b><span>Работают и в свёрнутом окне. По умолчанию выключены</span></div>
+            <button class="switch" class:on={P.hotkeys} role="switch" aria-checked={P.hotkeys} on:click={() => set({ hotkeys: !P.hotkeys })}><i></i></button>
+          </div>
           <p class="set-hint">Нажми на сочетание и введи новое — оно сохранится и будет работать в приложении.</p>
           {#each [["mic", "Микрофон", "Вкл / выкл"], ["deaf", "Звук", "Вкл / выкл"], ["cam", "Камера", "Вкл / выкл"], ["screen", "Стрим", "Начать / остановить"], ["leave", "Выйти из комнаты", "Отключиться от голоса"], ["search", "Поиск", "Открыть поиск по каналу"]] as [action, title, desc] (action)}
             <div class="set-row">

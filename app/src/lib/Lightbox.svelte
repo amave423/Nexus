@@ -20,15 +20,39 @@
   let startTy = 0;
   let moved = false;
   let stageEl = null;
+  let imgEl = null;
+  let natural = { w: 0, h: 0 };
 
   const clamp = (value) => Math.min(MAX, Math.max(MIN, value));
 
-  function zoomTo(next) {
-    scale = clamp(next);
-    if (scale <= START) {
+  function measure(event) {
+    natural = { w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight };
+  }
+
+  function bounds() {
+    const box = stageEl?.getBoundingClientRect();
+    if (!box || !natural.w || !natural.h) return { x: Infinity, y: Infinity };
+    const fit = Math.min(box.width / natural.w, box.height / natural.h);
+    return {
+      x: Math.max(0, (natural.w * fit * scale - box.width) / 2),
+      y: Math.max(0, (natural.h * fit * scale - box.height) / 2),
+    };
+  }
+
+  function clampPan() {
+    if (scale <= 1) {
       tx = 0;
       ty = 0;
+      return;
     }
+    const box = bounds();
+    tx = Math.max(-box.x, Math.min(box.x, tx));
+    ty = Math.max(-box.y, Math.min(box.y, ty));
+  }
+
+  function zoomTo(next) {
+    scale = clamp(next);
+    clampPan();
   }
 
   const zoomIn = () => zoomTo(scale * 1.4);
@@ -54,10 +78,7 @@
     scale = next;
     tx -= px * (k - 1);
     ty -= py * (k - 1);
-    if (scale <= START) {
-      tx = 0;
-      ty = 0;
-    }
+    clampPan();
   }
 
   function onPointerDown(event) {
@@ -76,9 +97,10 @@
     const dx = event.clientX - startX;
     const dy = event.clientY - startY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-    if (scale === 1) return;
+    if (scale <= 1) return;
     tx = startTx + dx;
     ty = startTy + dy;
+    clampPan();
   }
 
   function onPointerUp(event) {
@@ -127,10 +149,12 @@
     on:click|self={() => (moved ? null : close())}
   >
     <img
+      bind:this={imgEl}
       src={fileUrl(file.url)}
       alt={file.name}
       draggable="false"
-      style={`transform:translate(${tx}px, ${ty}px) scale(${scale})`}
+      on:load={measure}
+      style={`transform:translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${scale})`}
     />
   </div>
 
