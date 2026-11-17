@@ -214,6 +214,33 @@
 .vplayer.idle .vp-bar { opacity: 0; }
 .vplayer.idle video { cursor: none; }
 
+/* на весь экран — окно с полями 5%, а не растянутая картинка */
+.vplayer::backdrop { background: rgba(4, 4, 6, .94); }
+
+.vplayer:fullscreen {
+  inset: 0;
+  width: 90vw;
+  height: 90vh;
+  margin: auto;
+  border-radius: 18px;
+  border-color: rgba(var(--acid-rgb), .22);
+  box-shadow: 0 40px 120px -40px #000;
+}
+
+.vplayer:fullscreen video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+
+.vplayer:fullscreen .vp-bar { padding: 34px 18px 14px; }
+
+.vplayer:fullscreen .vp-play-big { width: 68px; height: 68px; }
+.vplayer.idle video { cursor: none; }
+
 .vp-seek {
   display: block;
   width: 100%;

@@ -212,10 +212,35 @@ function closeNotify() {
 }
 
 let notifyAction = null;
+const avatarCache = new Map();
 
-function showNotify(payload) {
+async function avatarData(url) {
+  const href = String(url || "");
+  if (!/^https?:/i.test(href)) return null;
+  if (avatarCache.has(href)) return avatarCache.get(href);
+  try {
+    const response = await net.fetch(href, { cache: "force-cache" });
+    if (!response.ok) return null;
+    const type = response.headers.get("content-type") || "image/png";
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length || buffer.length > 3 * 1024 * 1024) return null;
+    const data = `data:${type};base64,${buffer.toString("base64")}`;
+    avatarCache.set(href, data);
+    if (avatarCache.size > 120) avatarCache.clear();
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function showNotify(payload) {
   closeNotify();
   notifyAction = payload.action || null;
+  const direct = payload.avatarData || null;
+  const remote = direct ? null : (payload.avatarUrl || (String(payload.avatar || "").startsWith("http") ? payload.avatar : ""));
+  const picture = direct || (await avatarData(remote));
+  const view = { ...payload, avatarData: picture || null };
+  payload = view;
   const area = screen.getPrimaryDisplay().workArea;
   const width = 360;
   const height = 104;
@@ -250,17 +275,31 @@ function showNotify(payload) {
 
 let pickerWin = null;
 let pickerResolve = null;
+let streamPreset = { res: "1080", fps: "60" };
+let pendingPreset = null;
 
-function closePicker(sourceId) {
+function closePicker(result) {
   const resolve = pickerResolve;
   pickerResolve = null;
   if (pickerWin && !pickerWin.isDestroyed()) pickerWin.close();
   pickerWin = null;
-  resolve?.(sourceId || null);
+  resolve?.(result && result.id ? result : null);
 }
 
-ipcMain.on("picker:choose", (_event, id) => closePicker(id));
+ipcMain.on("picker:choose", (_event, result) => closePicker(result));
 ipcMain.on("picker:cancel", () => closePicker(null));
+ipcMain.on("stream:preset-set", (_event, preset) => {
+  if (!preset) return;
+  streamPreset = {
+    res: String(preset.res || streamPreset.res),
+    fps: String(preset.fps || streamPreset.fps),
+  };
+});
+ipcMain.handle("stream:preset", () => {
+  const picked = pendingPreset;
+  pendingPreset = null;
+  return picked;
+});
 
 async function pickSource() {
   const sources = await desktopCapturer.getSources({
@@ -280,7 +319,7 @@ async function pickSource() {
     pickerResolve = resolve;
     pickerWin = new BrowserWindow({
       width: 720,
-      height: 560,
+      height: 640,
       parent: win || undefined,
       modal: !!win,
       frame: false,
@@ -295,7 +334,7 @@ async function pickSource() {
     });
     pickerWin.loadFile(path.join(__dirname, "picker.html"));
     pickerWin.webContents.once("did-finish-load", () => {
-      pickerWin.webContents.send("picker:sources", list);
+      pickerWin.webContents.send("picker:sources", { sources: list, preset: streamPreset });
     });
     pickerWin.on("closed", () => {
       pickerWin = null;
@@ -310,12 +349,14 @@ function setupDisplayMedia() {
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
       try {
-        const sourceId = await pickSource();
-        if (!sourceId) return callback({});
+        const picked = await pickSource();
+        if (!picked) return callback({});
         const sources = await desktopCapturer.getSources({ types: ["screen", "window"] });
-        const source = sources.find((item) => item.id === sourceId);
+        const source = sources.find((item) => item.id === picked.id);
         if (!source) return callback({});
-        callback({ video: source });
+        if (picked.res || picked.fps) pendingPreset = { res: picked.res, fps: picked.fps };
+        if (process.platform === "win32") callback({ video: source, audio: "loopback" });
+        else callback({ video: source });
       } catch {
         callback({});
       }
@@ -362,7 +403,9 @@ ipcMain.on("desktop:badge", (_event, count) => {
   if (win && !win.isDestroyed() && unread > 0 && !win.isFocused()) win.flashFrame(true);
   refreshTray();
 });
-ipcMain.on("desktop:notify", (_event, payload) => showNotify(payload));
+ipcMain.on("desktop:notify", (_event, payload) => {
+  showNotify(payload).catch(() => {});
+});
 ipcMain.on("desktop:focus", () => showWindow());
 ipcMain.on("notify:open", (_event, channelId) => {
   const action = notifyAction;

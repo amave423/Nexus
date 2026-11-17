@@ -530,29 +530,7 @@
             <div class="set-row-t"><b>Качество</b><span>Битрейт звука в комнате</span></div>
             <Dropdown value={P.quality} options={["64 kbps", "96 kbps", "128 kbps"]} on:change={(e) => set({ quality: e.detail })} />
           </div>
-          <div class="set-row">
-            <div class="set-row-t"><b>Качество стрима</b><span>Разрешение демонстрации экрана</span></div>
-            <Dropdown
-              value={Object.keys(STREAM_RES).find((label) => STREAM_RES[label] === P.streamRes) || "1080p · 1920×1080"}
-              options={Object.keys(STREAM_RES)}
-              on:change={(e) => set({ streamRes: STREAM_RES[e.detail] || "1080" })}
-            />
-          </div>
-          <div class="set-row">
-            <div class="set-row-t"><b>Кадры стрима</b><span>Плавность демонстрации экрана</span></div>
-            <Dropdown
-              value={Object.keys(STREAM_FPS).find((label) => STREAM_FPS[label] === P.streamFps) || "60 к/с"}
-              options={Object.keys(STREAM_FPS)}
-              on:change={(e) => set({ streamFps: STREAM_FPS[e.detail] || "60" })}
-            />
-          </div>
-          {#if P.streamRes === "1440" && P.streamFps === "120"}
-            <p class="set-hint">2560×1440 при 120 к/с — до 30 Мбит/с: нужен аппаратный кодировщик, монитор 120 Гц и хороший интернет у зрителей.</p>
-          {:else if P.streamRes === "1440"}
-            <p class="set-hint">2560×1440 — тяжёлая картинка: от 10 Мбит/с и выше на каждого зрителя. Сервер только пересылает поток, канал — твой и зрителей.</p>
-          {:else if P.streamFps === "120"}
-            <p class="set-hint">120 к/с имеет смысл только для быстрых игр на мониторе 120 Гц; зритель увидит столько, сколько даёт его монитор.</p>
-          {/if}
+          <p class="set-hint">Разрешение и кадры демонстрации выбираются в окне «Поделиться экраном» — там же, где ты выбираешь окно или монитор. Текущий: {P.streamRes}p · {P.streamFps} к/с.</p>
         {/if}
 
         {#if tab === "notify"}
@@ -569,11 +547,11 @@
             <button class="switch" class:on={P.voiceSounds} role="switch" aria-checked={P.voiceSounds} on:click={() => set({ voiceSounds: !P.voiceSounds })}><i></i></button>
           </div>
           <div class="set-row">
-            <div class="set-row-t"><b>Упоминания</b><span>Всегда подсвечивать @упоминания</span></div>
+            <div class="set-row-t"><b>Упоминания</b><span>Приходят даже в режиме «не беспокоить»</span></div>
             <button class="switch" class:on={P.notifMention} role="switch" aria-checked={P.notifMention} on:click={() => set({ notifMention: !P.notifMention })}><i></i></button>
           </div>
           <div class="set-row">
-            <div class="set-row-t"><b>Не беспокоить</b><span>Скрыть все уведомления</span></div>
+            <div class="set-row-t"><b>Не беспокоить</b><span>Скрыть все уведомления, кроме упоминаний тебя</span></div>
             <button class="switch" class:on={P.dnd} role="switch" aria-checked={P.dnd} on:click={() => set({ dnd: !P.dnd })}><i></i></button>
           </div>
           <div class="set-row">

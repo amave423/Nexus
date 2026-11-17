@@ -55,10 +55,11 @@
   $: mode = screens.length ? "stream" : cams.length ? "cams" : "talk";
   $: viewers = Math.max(0, roomies.length - 1);
   $: levelOf = (p) => (p.me ? vs.micLevel : vs.levels.get(p.userId) || 0);
-  $: speaking = (p) => !p.muted && levelOf(p) > 0.06;
-  $: peak = roomies.reduce((top, p) => (p.muted ? top : Math.max(top, levelOf(p))), 0);
-  $: tile = roomies.length <= 2 ? 104 : roomies.length <= 4 ? 86 : roomies.length <= 6 ? 76 : 68;
+  $: speaking = (p) => !p.muted && levelOf(p) > 0.05;
+  $: av = roomies.length <= 2 ? 128 : roomies.length <= 4 ? 108 : roomies.length <= 8 ? 90 : 76;
   $: streamMode = `${$prefs.streamRes}p · ${$prefs.streamFps} к/с`;
+
+  const BARS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
   function videoStream(node, stream) {
     const attach = (s) => {
@@ -182,27 +183,26 @@
         </div>
       {/if}
     {:else}
-      <div class="orbit" data-n={roomies.length} style="--peak:{peak.toFixed(2)}">
-        <span class="orbit-rings"></span>
-        <span class="orbit-core">
-          <i class="core-blob b2"></i>
-          <i class="core-blob"></i>
-          <i class="core-wave w1"></i>
-          <i class="core-wave w2"></i>
-        </span>
+      <div class="pulse" data-n={roomies.length}>
+        <span class="pulse-floor"></span>
         {#each roomies as p, i (p.userId)}
           <button
-            class="node"
+            class="pulse-col"
             class:speaking={speaking(p)}
             class:me={p.me}
-            style="--a:{(360 / Math.max(roomies.length, 1)) * i - 90}deg; --lv:{levelOf(p).toFixed(2)}; --tile:{tile}px"
+            style="--lv:{levelOf(p).toFixed(2)}; --i:{i}; --av:{av}px"
             title={p.name}
             on:contextmenu={(e) => menu(e, p)}
           >
-            <span class="node-glow"></span>
-            <Avatar name={p.name} color={p.color} avatar={p.avatar} size={tile} radius={Math.round(tile * 0.36)} />
-            {#if p.muted}<i class="node-mute"><MicOff size={12} strokeWidth={2.4} /></i>{/if}
-            {#if p.deafened}<i class="node-deaf"><HeadphoneOff size={12} strokeWidth={2.4} /></i>{/if}
+            <span class="pulse-aura"></span>
+            <span class="pulse-shell">
+              <Avatar name={p.name} color={p.color} avatar={p.avatar} size={av} radius={Math.round(av * 0.34)} />
+            </span>
+            {#if p.muted}<i class="pulse-mute"><MicOff size={12} strokeWidth={2.4} /></i>{/if}
+            {#if p.deafened}<i class="pulse-deaf"><HeadphoneOff size={12} strokeWidth={2.4} /></i>{/if}
+            <span class="pulse-bars">
+              {#each BARS as bar}<i style="--b:{bar}"></i>{/each}
+            </span>
           </button>
         {/each}
         {#if roomies.length <= 1}

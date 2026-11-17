@@ -10,7 +10,7 @@ function soundCue(kind) {
   cue(kind, pref.volume);
 }
 
-const emptyRemote = () => ({ audio: null, camera: null, screen: null });
+const emptyRemote = () => ({ audio: null, screenAudio: null, camera: null, screen: null });
 
 export function createVoiceClient({ send, settings = () => ({}) }) {
   let seq = 0;
@@ -28,6 +28,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   let camProducer = null;
   let screenStream = null;
   let screenProducer = null;
+  let screenAudioProducer = null;
   let meter = null;
   let meterTimer = null;
   let micGain = null;
@@ -125,11 +126,16 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     publish();
   }
 
-  function applyUserAudio(userId) {
+  const audioKey = (userId, source) => `${userId}:${source === "screen" ? "screen" : "mic"}`;
+  const audioKeysOf = (userId) =>
+    [...new Set([...sinks.keys(), ...nodes.keys()])].filter((key) => key === audioKey(userId, "mic") || key === audioKey(userId, "screen"));
+
+  function applyKeyAudio(key) {
+    const userId = Number(String(key).split(":")[0]);
     const level = volumes.has(userId) ? volumes.get(userId) : 1;
     const muted = state.deafened || testHold || silent.has(userId);
-    const el = sinks.get(userId);
-    const node = nodes.get(userId);
+    const el = sinks.get(key);
+    const node = nodes.get(key);
     if (el) {
       el.muted = muted;
       el.volume = node ? 1 : Math.max(0, Math.min(1, level));
@@ -137,19 +143,24 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     if (node) node.gain.gain.value = muted ? 0 : level;
   }
 
+  function applyUserAudio(userId) {
+    for (const key of audioKeysOf(userId)) applyKeyAudio(key);
+  }
+
   function audioDebug() {
     const ids = new Set([...nodes.keys(), ...sinks.keys()]);
-    return [...ids].map((userId) => {
-      const el = sinks.get(userId);
+    return [...ids].map((key) => {
+      const el = sinks.get(key);
       return {
-        userId,
-        gain: nodes.get(userId) ? nodes.get(userId).gain.gain.value : null,
+        key,
+        userId: Number(String(key).split(":")[0]),
+        gain: nodes.get(key) ? nodes.get(key).gain.gain.value : null,
         volume: el ? el.volume : null,
         muted: el ? el.muted : null,
         live: el && el.srcObject ? el.srcObject.getAudioTracks().every((track) => track.readyState === "live") : null,
         context: mixCtx ? mixCtx.state : "none",
-        volumeSet: volumes.has(userId) ? volumes.get(userId) : 1,
-        silent: silent.has(userId) || state.deafened,
+        volumeSet: volumes.has(Number(String(key).split(":")[0])) ? volumes.get(Number(String(key).split(":")[0])) : 1,
+        silent: silent.has(Number(String(key).split(":")[0])) || state.deafened,
       };
     });
   }
@@ -183,17 +194,18 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     if (mixCtx && mixCtx.state === "suspended") mixCtx.resume().catch(() => {});
   }
 
-  function routeElement(userId, el) {
-    if (nodes.has(userId) || !el) return false;
+  function routeElement(key, el) {
+    if (nodes.has(key) || !el) return false;
     const ctx = mix();
     if (!ctx || !mixBus || ctx.state !== "running") return false;
+    const userId = Number(String(key).split(":")[0]);
     try {
       const source = ctx.createMediaElementSource(el);
       const gain = ctx.createGain();
       gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
       source.connect(gain);
       gain.connect(mixBus);
-      nodes.set(userId, { source, gain, el, stream: el.srcObject });
+      nodes.set(key, { source, gain, el, stream: el.srcObject });
       return true;
     } catch {
       return false;
@@ -201,9 +213,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function routeAll() {
-    for (const [userId, el] of sinks) {
-      if (!nodes.has(userId)) routeElement(userId, el);
-      applyUserAudio(userId);
+    for (const [key, el] of sinks) {
+      if (!nodes.has(key)) routeElement(key, el);
+      applyKeyAudio(key);
     }
   }
 
@@ -217,15 +229,17 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     publish();
   }
 
-  function sinkFor(userId) {
-    let el = sinks.get(userId);
+  function sinkFor(userId, source = "mic") {
+    const key = audioKey(userId, source);
+    let el = sinks.get(key);
     if (!el) {
       el = document.createElement("audio");
       el.autoplay = true;
       el.setAttribute("playsinline", "");
       el.dataset.voice = String(userId);
+      el.dataset.source = source === "screen" ? "screen" : "mic";
       document.body.appendChild(el);
-      sinks.set(userId, el);
+      sinks.set(key, el);
       if (el.setSinkId) el.setSinkId(settings()?.outDevId || "").catch(() => {});
     }
     return el;
@@ -381,22 +395,23 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     }
   }
 
-  function attachAudio(userId, stream) {
-    const el = sinkFor(userId);
+  function attachAudio(userId, stream, source = "mic") {
+    const key = audioKey(userId, source);
+    const el = sinkFor(userId, source);
     if (el.srcObject !== stream) {
       el.srcObject = stream;
       el.play().catch(() => {});
-      const node = nodes.get(userId);
+      const node = nodes.get(key);
       if (node) node.stream = stream;
     }
-    if (!nodes.has(userId)) routeElement(userId, el);
+    if (!nodes.has(key)) routeElement(key, el);
     resumeMix();
-    applyUserAudio(userId);
+    applyKeyAudio(key);
   }
 
-  function dropSink(userId) {
-    const node = nodes.get(userId);
-    nodes.delete(userId);
+  function dropKey(key) {
+    const node = nodes.get(key);
+    nodes.delete(key);
     if (node) {
       try {
         node.source.disconnect();
@@ -405,11 +420,16 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         /* уже отключено */
       }
     }
-    const el = sinks.get(userId);
+    const el = sinks.get(key);
     if (!el) return;
     el.srcObject = null;
     el.remove();
-    sinks.delete(userId);
+    sinks.delete(key);
+  }
+
+  function dropSink(userId) {
+    dropKey(audioKey(userId, "mic"));
+    dropKey(audioKey(userId, "screen"));
   }
 
   function dropUser(userId) {
@@ -426,8 +446,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function setStream(userId, kind, source, stream) {
     const entry = remote.get(userId) || emptyRemote();
     if (kind === "audio") {
-      entry.audio = stream;
-      attachAudio(userId, stream);
+      if (source === "screen") entry.screenAudio = stream;
+      else entry.audio = stream;
+      attachAudio(userId, stream, source);
     } else if (source === "screen") entry.screen = stream;
     else entry.camera = stream;
     remote.set(userId, entry);
@@ -438,8 +459,13 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     const entry = remote.get(userId);
     if (!entry) return;
     if (kind === "audio") {
-      entry.audio = null;
-      dropSink(userId);
+      if (source === "screen") {
+        entry.screenAudio = null;
+        dropKey(audioKey(userId, "screen"));
+      } else {
+        entry.audio = null;
+        dropKey(audioKey(userId, "mic"));
+      }
     } else if (source === "screen") entry.screen = null;
     else entry.camera = null;
     publish();
@@ -657,7 +683,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     consumers.clear();
     remote.clear();
     levels.clear();
-    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) dropSink(userId);
+    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) dropKey(key);
     pendingProducers.length = 0;
     await stopMic();
     stopCamera({ silent: true });
@@ -743,7 +769,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         }).catch(() => {});
       }
     }
-    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) applyUserAudio(userId);
+    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) applyKeyAudio(key);
     publish();
     return true;
   }
@@ -751,7 +777,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   async function setDeafened(deafened, silent = false) {
     const changed = state.deafened !== deafened;
     state.deafened = deafened;
-    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) applyUserAudio(userId);
+    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) applyKeyAudio(key);
     pushState();
     if (changed && !silent) soundCue(deafened ? "deafen" : "undeafen");
   }
@@ -822,9 +848,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   const SCREEN = {
-    "720": { width: 1280, height: 720, bitrate: { "30": 2500000, "60": 4000000, "120": 6000000 } },
-    "1080": { width: 1920, height: 1080, bitrate: { "30": 5000000, "60": 8000000, "120": 12000000 } },
-    "1440": { width: 2560, height: 1440, bitrate: { "30": 10000000, "60": 18000000, "120": 30000000 } },
+    "720": { width: 1280, height: 720, bitrate: { "30": 2000000, "60": 3500000, "120": 6000000 } },
+    "1080": { width: 1920, height: 1080, bitrate: { "30": 4000000, "60": 7000000, "120": 12000000 } },
+    "1440": { width: 2560, height: 1440, bitrate: { "30": 7000000, "60": 12000000, "120": 20000000 } },
   };
   let screenSig = "";
   let screenTimer = null;
@@ -842,27 +868,74 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function screenConstraints(mode) {
-    return {
-      width: { ideal: mode.width },
-      height: { ideal: mode.height },
-      frameRate: { ideal: mode.fps, max: mode.fps },
-    };
+    return { frameRate: { ideal: mode.fps, max: mode.fps } };
+  }
+
+  function captureScale(track, mode) {
+    const info = track?.getSettings ? track.getSettings() : {};
+    const width = Number(info.width) || 0;
+    if (!width || width <= mode.width * 1.1) return 1;
+    return Math.max(1, Number((width / mode.width).toFixed(2)));
+  }
+
+  function screenEncodings(track, mode) {
+    return [{ maxBitrate: mode.bitrate, scaleResolutionDownBy: captureScale(track, mode) }];
+  }
+
+  async function takePickerPreset() {
+    try {
+      const preset = await window.nexus?.desktop?.streamPreset?.();
+      if (!preset) return;
+      const patch = {};
+      if (preset.res && SCREEN[String(preset.res)]) patch.streamRes = String(preset.res);
+      if (["30", "60", "120"].includes(String(preset.fps))) patch.streamFps = String(preset.fps);
+      if (Object.keys(patch).length) prefs.patch(patch);
+    } catch {
+      /* настройки не выбирали — работаем с текущими */
+    }
   }
 
   async function startScreen() {
     if (screenProducer) return;
-    const mode = screenMode();
+    const initial = screenMode();
     screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: screenConstraints(mode),
-      audio: false,
+      video: screenConstraints(initial),
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 },
     });
+    await takePickerPreset();
+    const mode = screenMode();
     const track = screenStream.getVideoTracks()[0];
+    track.contentHint = "detail";
+    await track.applyConstraints(screenConstraints(mode)).catch(() => {});
     track.addEventListener("ended", () => stopScreen());
     screenProducer = await sendTransport.produce({
       track,
       appData: { source: "screen" },
-      encodings: [{ maxBitrate: mode.bitrate }],
+      encodings: screenEncodings(track, mode),
     });
+    const streamAudio = screenStream.getAudioTracks()[0];
+    if (streamAudio) {
+      streamAudio.contentHint = "music";
+      screenAudioProducer = await sendTransport
+        .produce({
+          track: streamAudio,
+          appData: { source: "screen" },
+          codecOptions: { opusStereo: true, opusDtx: false, opusFec: true },
+        })
+        .catch(() => null);
+      streamAudio.addEventListener("ended", () => {
+        if (screenAudioProducer) {
+          const audioProducer = screenAudioProducer;
+          screenAudioProducer = null;
+          try {
+            audioProducer.close();
+          } catch {
+            /* уже закрыт */
+          }
+          request("voice.closeProducer", { producerId: audioProducer.id }).catch(() => {});
+        }
+      });
+    }
     screenSig = screenSignature();
     state.stream = true;
     local.screen = new MediaStream([track]);
@@ -882,7 +955,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     screenProducer = await sendTransport.produce({
       track,
       appData: { source: "screen" },
-      encodings: [{ maxBitrate: mode.bitrate }],
+      encodings: screenEncodings(track, mode),
     });
     screenSig = screenSignature();
     local.screen = new MediaStream([track]);
@@ -890,6 +963,16 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   async function stopScreen({ silent = false } = {}) {
+    if (screenAudioProducer) {
+      const audioProducer = screenAudioProducer;
+      screenAudioProducer = null;
+      try {
+        audioProducer.close();
+      } catch {
+        /* уже закрыт */
+      }
+      await request("voice.closeProducer", { producerId: audioProducer.id }).catch(() => {});
+    }
     if (screenProducer) {
       screenProducer.close();
       await request("voice.closeProducer", { producerId: screenProducer.id }).catch(() => {});
@@ -937,7 +1020,8 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       case "voice.levels": {
         if (event.channelId && event.channelId !== state.channelId) return;
         levels.clear();
-        for (const item of event.levels || []) levels.set(item.userId, item.volume);
+        for (const item of event.levels || [])
+          levels.set(item.userId, Math.min(1, Math.max(0, Number(item.volume) || 0) / 64));
         const now = Date.now();
         if (now - levelsPublish < 140) return;
         levelsPublish = now;
@@ -1017,7 +1101,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function reset() {
     for (const userId of remote.keys()) dropUser(userId);
-    for (const userId of new Set([...nodes.keys(), ...sinks.keys()])) dropSink(userId);
+    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) dropKey(key);
     rosters.clear();
     levels.clear();
     state.channelId = null;

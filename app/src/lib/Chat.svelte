@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from "svelte";
   import { api, connect, setToken, upload, fileUrl } from "./api.js";
+  import { isMentioned } from './mention.js';
   import { prefs } from "./prefs.js";
   import { cue, playSound, wakeAudio } from "./sound.js";
   import { toast } from "./toasts.js";
@@ -173,6 +174,15 @@
     ])
   );
 
+  const gbText = (bytes) => {
+    const value = Number(bytes) || 0;
+    if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} ГБ`;
+    return `${Math.round(value / 1024 / 1024)} МБ`;
+  };
+  $: mediaUsed = Number(space?.mediaUsed) || 0;
+  $: mediaQuota = Number(space?.mediaQuota) || 0;
+  $: mediaPct = mediaQuota ? Math.min(100, Math.round((mediaUsed / mediaQuota) * 100)) : 0;
+  $: mentionHandles = members.flatMap((m) => [m.name, m.login].filter(Boolean));
   function cueSound(kind, pref = prefs.get()) {
     if (!pref.voiceSounds) return;
     cue(kind, pref.volume);
@@ -526,17 +536,14 @@
 
   function mentionedMe(message) {
     if (!message.text) return false;
-    const keys = [user.login, user.name].filter(Boolean).map((value) => value.toLowerCase());
-    if (!keys.length) return false;
-    const tokens = String(message.text).toLowerCase().match(/@[\p{L}\p{N}_.-]+/gu) || [];
-    return tokens.some((token) => keys.includes(token.slice(1)));
+    return isMentioned(message.text, [user.login, user.name]);
   }
 
   function notifyMessage(message) {
     if (message.userId === user.id) return;
     const pref = prefs.get();
     const mention = mentionedMe(message);
-    if (pref.dnd && !mention) return;
+    if (pref.dnd && !(mention && pref.notifMention)) return;
     const sameChannel = current?.id === message.channelId;
     if (!sameChannel) {
       unread.add(message.channelId);
@@ -575,7 +582,7 @@
     }
     const caret = inputEl.selectionStart ?? value.length;
     const before = value.slice(0, caret);
-    const match = before.match(/(?:^|\s)@([\p{L}\p{N}_.-]*)$/u);
+    const match = before.match(/(?:^|\s)@([^\n@]{0,40})$/u);
     if (!match) {
       mentionOpen = false;
       return;
@@ -714,6 +721,10 @@
     if (event.t === "space.update") {
       space = event.space;
       spaces = spaces.map((s) => (s.id === event.space.id ? { ...s, ...event.space } : s));
+      return;
+    }
+    if (event.t === "space.usage") {
+      if (space && event.spaceId === space.id) space = { ...space, mediaUsed: event.mediaUsed };
       return;
     }
     if (event.t === "space.deleted") {
@@ -941,6 +952,7 @@
       watchVoice(value);
     });
     window.__nexusVoice = voice;
+    window.__nexusPrefs = prefs;
     window.__nexusNoise = { ready: rnnoiseReady, error: rnnoiseError };
     window.addEventListener("keydown", onHotkey);
     if (prefs.get().notifDesktop && !desktop && "Notification" in window && Notification.permission === "default") {
@@ -959,7 +971,12 @@
       });
       unsubscribePrefs = prefs.subscribe((p) => {
         desktop.setHotkeys(p.hotkeys ? p.keys : {});
+        desktop.setStreamPreset?.({ res: p.streamRes, fps: p.streamFps });
         voice?.applySettings(p);
+      });
+      desktop.setStreamPreset?.({
+        res: prefs.get().streamRes,
+        fps: prefs.get().streamFps,
       });
     }
   });
@@ -1210,6 +1227,7 @@
               <Message
                 {message}
                 {customEmoji}
+                handles={mentionHandles}
                 me={user}
                 canManage={canManage()}
                 role={roleOf(message.userId)}
@@ -1322,6 +1340,13 @@
   </section>
 
   <aside class="members">
+    {#if space}
+      <div class="mem-usage" class:warn={mediaPct >= 80} class:full={mediaPct >= 95} title={`занято ${gbText(mediaUsed)} из ${gbText(mediaQuota)}`}>
+        <span class="mem-usage-lbl">место</span>
+        <span class="mem-usage-bar"><i style="--fill:{mediaPct}%"></i></span>
+        <b>{gbText(mediaUsed)} / {gbText(mediaQuota)}</b>
+      </div>
+    {/if}
     <div class="mem-head">
       участники
       <span class="count">{members.length}</span>

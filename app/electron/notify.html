@@ -101,13 +101,23 @@
         $("text").textContent = payload.text || "";
         $("tag").textContent = payload.channel ? `#${payload.channel}` : "nexus";
         const av = $("av");
-        const picture = payload.avatarUrl || payload.avatar;
-        if (picture && String(picture).startsWith("http")) {
-          av.style.backgroundImage = `url("${picture}")`;
-          av.textContent = "";
-        } else {
-          av.textContent = (payload.name || "?").slice(0, 2).toUpperCase();
-          av.style.background = payload.color || "#c8ff3d";
+        const letters = (payload.name || "?").slice(0, 2).toUpperCase();
+        const color = payload.color || "#c8ff3d";
+        av.style.background = color;
+        av.style.backgroundSize = "cover";
+        av.style.backgroundPosition = "center";
+        av.textContent = letters;
+        const picture = payload.avatarData || payload.avatarUrl || payload.avatar;
+        if (picture && String(picture).length > 8) {
+          const probe = new Image();
+          probe.onload = () => {
+            av.style.backgroundImage = `url("${picture}")`;
+            av.textContent = "";
+          };
+          probe.onerror = () => {
+            av.style.backgroundImage = "none";
+          };
+          probe.src = picture;
         }
       });
 

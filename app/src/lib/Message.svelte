@@ -1,4 +1,5 @@
 <script>
+  import { mentionRegex } from './mention.js';
   import Avatar from "./Avatar.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
   import { fileUrl } from "./api.js";
@@ -7,6 +8,7 @@
 
   export let message;
   export let customEmoji = [];
+  export let handles = [];
   export let me;
   export let canManage = false;
   export let role = null;
@@ -50,10 +52,10 @@
   const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   function parts(text) {
-    const names = customEmoji.map((e) => e.name).filter(Boolean);
-    if (!names.length) return text.split(/(@[\wА-Яа-яЁё-]+)/g);
-    const re = new RegExp(`(@[\\wА-Яа-яЁё-]+|:(?:${names.map(escapeRe).join("|")}):)`, "g");
-    return text.split(re);
+    const emoji = customEmoji.map((e) => e.name).filter(Boolean).map(escapeRe);
+    const bits = [mentionRegex(handles).source];
+    if (emoji.length) bits.push(`:(?:${emoji.join("|")}):`);
+    return text.split(new RegExp(`(${bits.join("|")})`, "giu"));
   }
 
   const kindOf = (file) => String(file.mime || "").toLowerCase();

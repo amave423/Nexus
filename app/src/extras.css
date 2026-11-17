@@ -1467,159 +1467,135 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* ── орбита голосового канала ─────────────────────────────── */
-.orbit {
+/* ── пульс-полоса голосового канала ───────────────────────── */
+.pulse {
   position: relative;
   width: 100%;
   height: 100%;
-  display: grid;
-  place-items: center;
-  --r: clamp(140px, 27vh, 236px);
-  --peak: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  align-content: center;
+  gap: clamp(10px, 2.2vh, 26px) clamp(14px, 2.6vw, 56px);
+  padding: clamp(14px, 3vh, 40px) clamp(16px, 3vw, 48px);
   isolation: isolate;
+  overflow: hidden;
 }
-.orbit[data-n="1"], .orbit[data-n="2"] { --r: clamp(150px, 28vh, 240px); }
-.orbit[data-n="3"], .orbit[data-n="4"] { --r: clamp(160px, 29vh, 250px); }
-.orbit[data-n="5"], .orbit[data-n="6"] { --r: clamp(175px, 31vh, 270px); }
-.orbit[data-n="7"], .orbit[data-n="8"] { --r: clamp(190px, 33vh, 290px); }
 
-.orbit::before {
-  content: "";
+.pulse-floor {
   position: absolute;
-  inset: -8%;
-  z-index: -1;
+  left: 10%;
+  right: 10%;
+  bottom: 8%;
+  height: 42%;
+  border-radius: 50%;
   background:
-    radial-gradient(46% 46% at 50% 50%, rgba(var(--acid-rgb), calc(.05 + var(--peak) * .16)), transparent 70%),
-    radial-gradient(38% 38% at 16% 18%, rgba(111, 227, 255, .07), transparent 72%),
-    radial-gradient(42% 42% at 84% 86%, rgba(177, 140, 255, .07), transparent 72%);
-  animation: orbitAurora 16s ease-in-out infinite alternate;
-  transition: background .35s ease;
-}
-@keyframes orbitAurora {
-  from { transform: rotate(-4deg) scale(1); }
-  to { transform: rotate(6deg) scale(1.08); }
-}
-
-.orbit-rings {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: calc(var(--r) * 2);
-  height: calc(var(--r) * 2);
-  margin: calc(var(--r) * -1) 0 0 calc(var(--r) * -1);
-  border-radius: 50%;
-  border: 1px dashed rgba(255, 255, 255, .06);
-  animation: ringSpin 90s linear infinite;
+    radial-gradient(58% 62% at 50% 58%, rgba(var(--acid-rgb), .07), transparent 74%),
+    radial-gradient(40% 40% at 20% 70%, rgba(111, 227, 255, .05), transparent 72%),
+    radial-gradient(40% 40% at 80% 66%, rgba(177, 140, 255, .05), transparent 72%);
+  filter: blur(10px);
+  animation: floorDrift 15s ease-in-out infinite alternate;
   pointer-events: none;
+  z-index: -1;
 }
-.orbit-rings::after {
-  content: "";
-  position: absolute;
-  inset: -16%;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, .03);
+@keyframes floorDrift {
+  from { transform: translateX(-4%) scaleY(.92); opacity: .8; }
+  to { transform: translateX(4%) scaleY(1.06); opacity: 1; }
 }
-@keyframes ringSpin { to { transform: rotate(360deg); } }
 
-.orbit-core {
+.pulse-col {
   position: relative;
-  width: 130px;
-  height: 130px;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-.core-blob {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle at 42% 34%, rgba(var(--acid-rgb), calc(.4 + var(--peak) * .5)), rgba(var(--acid-rgb), .07) 58%, transparent 74%);
-  filter: blur(1px);
-  transform: scale(calc(.82 + var(--peak) * .3));
-  transition: transform .22s ease-out;
-  animation: corePulse 5.4s ease-in-out infinite;
-}
-.core-blob.b2 {
-  inset: -18%;
-  opacity: .4;
-  background: radial-gradient(circle, rgba(var(--acid-rgb), .2), transparent 66%);
-  animation-delay: -2.7s;
-}
-@keyframes corePulse {
-  0%, 100% { opacity: .72; }
-  50% { opacity: 1; }
-}
-.core-wave {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(var(--acid-rgb), .42);
-  animation: coreWave 4.6s cubic-bezier(.2, .8, .3, 1) infinite;
-}
-.core-wave.w2 { animation-delay: -2.3s; }
-@keyframes coreWave {
-  0% { transform: scale(.62); opacity: .45; }
-  70% { opacity: .12; }
-  100% { transform: scale(1.85); opacity: 0; }
-}
-
-.node {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: calc(var(--av, 96px) + 14px);
+  padding: 8px 0 0;
   background: none;
   border: 0;
   color: inherit;
-  transform: translate(-50%, -50%) rotate(var(--a)) translateY(calc(-1 * var(--r))) rotate(calc(-1 * var(--a)));
+  animation: colIn .44s cubic-bezier(.2, .9, .25, 1) both;
+  animation-delay: calc(var(--i, 0) * 55ms);
 }
-.node::before {
-  content: "";
-  position: absolute;
-  width: calc(var(--tile, 78px) + 22px);
-  height: calc(var(--tile, 78px) + 22px);
-  border-radius: 40%;
-  background: conic-gradient(from 0deg, transparent 0deg, rgba(var(--acid-rgb), .85) 44deg, transparent 116deg);
-  -webkit-mask: radial-gradient(circle at 50% 50%, transparent 58%, #000 61%);
-  mask: radial-gradient(circle at 50% 50%, transparent 58%, #000 61%);
-  opacity: 0;
-  transition: opacity .25s;
-  pointer-events: none;
+@keyframes colIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
 }
-.node.speaking::before {
-  opacity: 1;
-  animation: nodeSweep 2.6s linear infinite;
-}
-@keyframes nodeSweep { to { transform: rotate(360deg); } }
 
-.node-glow {
+.pulse-aura {
   position: absolute;
-  width: calc(var(--tile, 78px) * 1.9);
-  height: calc(var(--tile, 78px) * 1.9);
+  top: -16%;
+  left: 50%;
+  width: calc(var(--av, 96px) * 2);
+  height: calc(var(--av, 96px) * 2);
+  transform: translateX(-50%) scale(calc(.84 + var(--lv, 0) * .3));
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--acid-rgb), calc(.06 + var(--lv) * .38)), transparent 68%);
-  opacity: calc(.22 + var(--lv) * .78);
-  transform: scale(calc(.88 + var(--lv) * .3));
-  transition: opacity .22s, transform .22s;
+  background: radial-gradient(circle, rgba(var(--acid-rgb), calc(.05 + var(--lv, 0) * .48)), transparent 68%);
+  opacity: calc(.14 + var(--lv, 0) * .86);
+  transition: opacity .16s ease-out, transform .16s ease-out;
   pointer-events: none;
 }
-.node .avatar-shell {
+
+.pulse-shell {
   position: relative;
   z-index: 1;
   transition: transform .24s cubic-bezier(.2, .9, .25, 1);
 }
-.node.speaking .avatar-shell { transform: translateY(-2px) scale(1.06); }
-.node.speaking .avatar {
-  box-shadow: 0 0 0 2px rgba(var(--acid-rgb), .75), 0 16px 38px -16px rgba(var(--acid-rgb), .9);
+.pulse-col.speaking .pulse-shell { transform: translateY(-3px) scale(1.05); }
+.pulse-col.speaking .pulse-shell .avatar {
+  box-shadow: 0 0 0 2px rgba(var(--acid-rgb), .85), 0 22px 44px -20px rgba(var(--acid-rgb), .95);
 }
-.node:hover .avatar { box-shadow: 0 0 0 2px rgba(255, 255, 255, .14); }
+.pulse-col:hover .pulse-shell .avatar { box-shadow: 0 0 0 2px rgba(255, 255, 255, .16); }
 
-.node-mute, .node-deaf {
+.pulse-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 46px;
+}
+.pulse-bars i {
+  display: block;
+  width: 4px;
+  border-radius: 3px;
+  height: calc(5px + var(--lv, 0) * 40px * var(--k, .6));
+  background: linear-gradient(180deg, rgba(var(--acid-rgb), .95), rgba(var(--acid-rgb), .22));
+  opacity: calc(.34 + var(--lv, 0) * .66);
+  transform-origin: 50% 100%;
+  transition: height .1s linear, opacity .1s linear;
+}
+.pulse-bars i:nth-child(1) { --k: .34; }
+.pulse-bars i:nth-child(2) { --k: .58; }
+.pulse-bars i:nth-child(3) { --k: .82; }
+.pulse-bars i:nth-child(4) { --k: 1; }
+.pulse-bars i:nth-child(5) { --k: .74; }
+.pulse-bars i:nth-child(6) { --k: 1; }
+.pulse-bars i:nth-child(7) { --k: .82; }
+.pulse-bars i:nth-child(8) { --k: .58; }
+.pulse-bars i:nth-child(9) { --k: .34; }
+
+.pulse-col.speaking .pulse-bars i {
+  animation: barBreathe .82s ease-in-out infinite alternate;
+  animation-delay: calc(var(--b, 0) * -90ms);
+}
+@keyframes barBreathe {
+  from { transform: scaleY(.74); }
+  to { transform: scaleY(1.1); }
+}
+.pulse-col:not(.speaking) .pulse-bars i {
+  animation: barIdle 3.6s ease-in-out infinite alternate;
+  animation-delay: calc(var(--b, 0) * -220ms);
+}
+@keyframes barIdle {
+  from { transform: scaleY(.7); }
+  to { transform: scaleY(1.05); }
+}
+
+.pulse-mute, .pulse-deaf {
   position: absolute;
-  top: -6px;
-  left: calc(50% + var(--tile, 78px) / 2 - 15px);
+  top: 4px;
+  left: calc(50% + var(--av, 96px) / 2 - 15px);
   display: grid;
   place-items: center;
   width: 21px;
@@ -1630,7 +1606,7 @@ body {
   z-index: 3;
   box-shadow: 0 6px 14px -6px #000;
 }
-.node-deaf { top: 16px; background: #ffb454; }
+.pulse-deaf { top: 27px; background: #ffb454; }
 
 .quiet-strip {
   position: absolute;
@@ -1808,6 +1784,39 @@ body {
 .stage .mem-name { font-size: 14px; }
 .stage .mem-head { font-size: 11.5px; letter-spacing: .1em; }
 .stage .mem-head .count { font-size: 11.5px; }
+
+/* занятое место сервера над списком участников */
+.mem-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .05em;
+  color: var(--dim);
+}
+.mem-usage-lbl { text-transform: uppercase; letter-spacing: .12em; font-size: 9px; }
+.mem-usage b { margin-left: auto; color: var(--txt-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mem-usage-bar {
+  position: relative;
+  flex: 1 1 auto;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .1);
+  overflow: hidden;
+}
+.mem-usage-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--fill, 0%);
+  border-radius: 3px;
+  background: var(--acid);
+  transition: width .35s ease, background .2s;
+}
+.mem-usage.warn .mem-usage-bar i { background: #ffb454; }
+.mem-usage.full .mem-usage-bar i { background: var(--rose); }
 .stage .mem-group h3 { font-size: 11.5px; letter-spacing: .08em; }
 .stage .chan-group, .stage .chan-rail-head { font-size: 11.5px; letter-spacing: .1em; }
 .stage .chan-count { font-size: 10.5px; }
@@ -1839,7 +1848,7 @@ body {
 .avatar { line-height: 1; letter-spacing: -0.02em; }
 
 /* экономим CPU: анимации стоят, пока окно не видно */
-body.idle .orbit-core *, body.idle .orbit-rings, body.idle .orbit::before, body.idle .node::before,
+body.idle .pulse-floor, body.idle .pulse-bars i, body.idle .pulse-aura,
 body.idle .wave i, body.idle .live-dot { animation-play-state: paused !important; }
 
 /* монеты серверов с фотографией */

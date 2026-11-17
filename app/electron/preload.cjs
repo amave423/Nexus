@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("nexus", {
     setBadge: (count) => ipcRenderer.send("desktop:badge", count),
     notify: (payload) => ipcRenderer.send("desktop:notify", payload),
     focus: () => ipcRenderer.send("desktop:focus"),
+    setStreamPreset: (preset) => ipcRenderer.send("stream:preset-set", preset),
+    streamPreset: () => ipcRenderer.invoke("stream:preset"),
     onHotkey: listen("hotkey"),
     onTrayAction: listen("tray:action"),
     onNotifyOpen: listen("notify:open"),

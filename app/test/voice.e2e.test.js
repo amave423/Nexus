@@ -99,10 +99,10 @@ test("голос: два клиента слышат друг друга в ка
   await joinVoice(pageB);
   await joinVoice(pageA);
 
-  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
-  await pageB.locator(".node").nth(1).waitFor({ timeout: 20000 });
-  assert.equal(await pageA.locator(".node").count(), 2, "в комнате Артёма двое");
-  assert.equal(await pageB.locator(".node").count(), 2, "в комнате Миры двое");
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
+  await pageB.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
+  assert.equal(await pageA.locator(".pulse-col").count(), 2, "в комнате Артёма двое");
+  assert.equal(await pageB.locator(".pulse-col").count(), 2, "в комнате Миры двое");
 
   const gotA = await waitForAudio(pageA, "Артёма");
   const gotB = await waitForAudio(pageB, "Миру");
@@ -117,8 +117,8 @@ test("голос: два клиента слышат друг друга в ка
   assert.ok(routed.some((item) => (item.gain ?? item.volume) > 0), "звук собеседника играет");
 
   await pageA.locator(".room").getByTitle("Микрофон").click();
-  await pageB.locator(".node-mute").first().waitFor({ timeout: 10000 });
-  assert.equal(await pageB.locator(".node-mute").count(), 1, "у Миры видно, что Артём замьючен");
+  await pageB.locator(".pulse-mute").first().waitFor({ timeout: 10000 });
+  assert.equal(await pageB.locator(".pulse-mute").count(), 1, "у Миры видно, что Артём замьючен");
 
   await pageA.locator(".room").getByTitle("Камера").click();
   await pageB.locator(".cams .cam").first().waitFor({ timeout: 20000 });
@@ -130,8 +130,8 @@ test("голос: два клиента слышат друг друга в ка
   assert.ok(camTracks >= 1, "камера Артёма видна у Миры");
 
   await pageA.locator(".rbtn.leave").click();
-  await pageB.locator(".node").nth(1).waitFor({ state: "detached", timeout: 20000 });
-  assert.equal(await pageB.locator(".node").count(), 1, "после выхода остался один");
+  await pageB.locator(".pulse-col").nth(1).waitFor({ state: "detached", timeout: 20000 });
+  assert.equal(await pageB.locator(".pulse-col").count(), 1, "после выхода остался один");
 
   await contextA.close();
   await contextB.close();
@@ -167,7 +167,7 @@ test("голос: демонстрация экрана доходит до вт
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageB.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageB.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
 
   await pageA.getByTitle("Демонстрация экрана").click();
   await pageB.locator(".stream-view").waitFor({ timeout: 20000 });
@@ -201,7 +201,7 @@ test("голос: демонстрация экрана доходит до вт
 
   await pageA.getByTitle("Демонстрация экрана").click();
   await pageB.locator(".stream-view").waitFor({ state: "detached", timeout: 20000 });
-  assert.equal(await pageB.locator(".node").count(), 2, "после остановки стрима комната на месте");
+  assert.equal(await pageB.locator(".pulse-col").count(), 2, "после остановки стрима комната на месте");
 
   await contextA.close();
   await contextB.close();
@@ -221,7 +221,7 @@ test("голос: звук не пропадает при переходе в т
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
   await waitForAudio(pageA, "Артёма");
 
   await pageA.locator(".chan", { hasText: "general" }).click();
@@ -241,8 +241,8 @@ test("голос: звук не пропадает при переходе в т
 
   await pageA.locator(".voice-seg").waitFor({ timeout: 5000 });
   await pageA.locator(".voice-seg").getByTitle("Микрофон").click();
-  await pageB.locator(".node-mute").first().waitFor({ timeout: 10000 });
-  assert.equal(await pageB.locator(".node-mute").count(), 1, "мьют из текстового канала виден в комнате");
+  await pageB.locator(".pulse-mute").first().waitFor({ timeout: 10000 });
+  assert.equal(await pageB.locator(".pulse-mute").count(), 1, "мьют из текстового канала виден в комнате");
 
   await pageA.locator(".voice-seg").getByTitle("Выйти из канала").click();
   await pageA.locator(".voice-seg").waitFor({ state: "detached", timeout: 10000 });
@@ -293,7 +293,7 @@ test("голос: без микрофона входишь в канал и сл
   await pageB.locator(".mic-warn").waitFor({ timeout: 15000 });
 
   await joinVoice(pageA);
-  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
 
   const got = await waitForAudio(pageB, "Миру");
   assert.ok(got.bytes > 0, "без микрофона Мира слышит Артёма");
@@ -345,7 +345,7 @@ test("голос: проверка микрофона в настройках н
   const page = await context.newPage();
   await register(page, "Артём");
   await joinVoice(page);
-  await page.locator(".node").first().waitFor({ timeout: 20000 });
+  await page.locator(".pulse-col").first().waitFor({ timeout: 20000 });
 
   const before = await page.evaluate(() => ({ muted: window.__nexusVoice.state.muted, error: window.__nexusVoice.state.micError }));
   assert.equal(before.muted, false, "канал начался с включённым микрофоном");
@@ -389,7 +389,7 @@ test("голос: смена шумодава в канале не ломает 
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
   await waitForAudio(pageB, "Артёма");
 
   await pageA.locator(".profile-btn").click();
@@ -433,7 +433,7 @@ test("голос: переход на другой сервер не выкид�
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
   await waitForAudio(pageA, "Артёма");
 
   await pageA.getByRole("button", { name: "Новый сервер" }).click();
@@ -450,7 +450,7 @@ test("голос: переход на другой сервер не выкид�
   const after = (await audioBytes(pageA)).find((item) => item.kind === "audio")?.bytes || 0;
   assert.ok(after > before, `звук продолжает идти: было ${before}, стало ${after}`);
 
-  assert.equal(await pageB.locator(".node").count(), 2, "на первом сервере собеседник остался в канале");
+  assert.equal(await pageB.locator(".pulse-col").count(), 2, "на первом сервере собеседник остался в канале");
 
   await pageA.locator(".coin").first().click();
   await pageA.getByPlaceholder("Написать в #general").waitFor({ timeout: 10000 });
@@ -475,9 +475,9 @@ test("голос: меню участника даёт громкость до 2
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageA.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
 
-  await pageA.locator('.node[title="Мира"]').click({ button: "right" });
+  await pageA.locator('.pulse-col[title="Мира"]').click({ button: "right" });
   const menu = pageA.locator(".umenu");
   await menu.waitFor({ timeout: 5000 });
   assert.match(await menu.locator(".umenu-vol-head b").innerText(), /100%/);
@@ -535,10 +535,15 @@ test("стрим: качество и кадры меняются на ходу 
   await pageA.addInitScript(() => {
     navigator.mediaDevices.getDisplayMedia = async (constraints) => {
       const video = (constraints && constraints.video) || {};
-      const width = (video.width && video.width.ideal) || 1280;
-      const height = (video.height && video.height.ideal) || 720;
       const fps = (video.frameRate && video.frameRate.ideal) || 15;
-      window.__screenAsk = { width, height, fps };
+      window.__screenAsk = {
+        width: video.width ? video.width.ideal : null,
+        height: video.height ? video.height.ideal : null,
+        fps,
+        audio: !!constraints.audio,
+      };
+      const width = 2560;
+      const height = 1440;
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -557,36 +562,31 @@ test("стрим: качество и кадры меняются на ходу 
   await register(pageB, "Мира");
   await joinVoice(pageB);
   await joinVoice(pageA);
-  await pageB.locator(".node").nth(1).waitFor({ timeout: 20000 });
+  await pageB.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
 
   await pageA.getByTitle("Демонстрация экрана").click();
   await pageB.locator(".stream-view").waitFor({ timeout: 20000 });
 
   const ask = await pageA.evaluate(() => window.__screenAsk);
-  assert.deepEqual(ask, { width: 1920, height: 1080, fps: 60 }, "по умолчанию 1080p при 60 к/с");
+  assert.equal(ask.width, null, "захват идёт в родном размере, без масштаба на входе");
+  assert.equal(ask.height, null, "без сжатия картинки захватом");
+  assert.equal(ask.fps, 60, "по умолчанию 60 к/с");
+  assert.equal(ask.audio, true, "звук компьютера захватывается вместе с экраном");
 
   const mode = await pageA.evaluate(() => window.__nexusVoice.screenMode());
   assert.deepEqual(
     [mode.width, mode.height, mode.fps, mode.bitrate],
-    [1920, 1080, 60, 8000000],
-    "1080p/60 кодируется в 8 Мбит/с"
+    [1920, 1080, 60, 7000000],
+    "1080p/60 кодируется в 7 Мбит/с"
   );
 
-  await pageA.locator('.profile-btn[aria-label="Настройки"]').click();
-  await pageA.getByRole("button", { name: "Голос и видео" }).click();
-  const resDd = pageA.locator(".dd").filter({ has: pageA.locator(".dd-btn", { hasText: "1080p" }) });
-  await resDd.locator(".dd-btn").click();
-  await resDd.locator(".dd-opt", { hasText: "1440p" }).click();
-  const fpsDd = pageA.locator(".dd").filter({ has: pageA.locator(".dd-btn", { hasText: "60 к/с" }) });
-  await fpsDd.locator(".dd-btn").click();
-  await fpsDd.locator(".dd-opt", { hasText: "120 к/с" }).click();
-  await pageA.keyboard.press("Escape");
+  await pageA.evaluate(() => window.__nexusPrefs.patch({ streamRes: "1440", streamFps: "120" }));
 
   const big = await pageA.evaluate(() => window.__nexusVoice.screenMode());
   assert.deepEqual(
     [big.width, big.height, big.fps, big.bitrate],
-    [2560, 1440, 120, 30000000],
-    "2560×1440 при 120 к/с идёт на 30 Мбит/с"
+    [2560, 1440, 120, 20000000],
+    "2560×1440 при 120 к/с идёт на 20 Мбит/с"
   );
 
   const deadline = Date.now() + 30000;
@@ -610,3 +610,68 @@ test("стрим: качество и кадры меняются на ходу 
   await contextA.close();
   await contextB.close();
 });
+
+test("стрим: звук компьютера доходит до зрителя", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await pageA.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = 720;
+      const ctx = canvas.getContext("2d");
+      let hue = 0;
+      setInterval(() => {
+        hue = (hue + 6) % 360;
+        ctx.fillStyle = `hsl(${hue} 80% 50%)`;
+        ctx.fillRect(0, 0, 1280, 720);
+      }, 100);
+      const video = canvas.captureStream(30);
+      const audioCtx = new AudioContext();
+      const osc = audioCtx.createOscillator();
+      const dest = audioCtx.createMediaStreamDestination();
+      osc.connect(dest);
+      osc.start();
+      return new MediaStream([...video.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    };
+  });
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageB.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
+
+  await pageA.getByTitle("Демонстрация экрана").click();
+  await pageB.locator(".stream-view").waitFor({ timeout: 20000 });
+
+  const deadline = Date.now() + 20000;
+  let heard = false;
+  while (Date.now() < deadline) {
+    heard = await pageB.evaluate(() =>
+      [...document.querySelectorAll("audio[data-source='screen']")].some(
+        (node) => node.srcObject && node.srcObject.getAudioTracks().some((tr) => tr.readyState === "live")
+      )
+    );
+    if (heard) break;
+    await pageB.waitForTimeout(300);
+  }
+  assert.ok(heard, "у зрителя есть живая дорожка звука стрима");
+
+  const debug = await pageB.evaluate(() => window.__nexusVoice.audioDebug());
+  assert.ok(
+    debug.some((item) => String(item.key).endsWith(":screen") && item.live),
+    "звук стрима подключён отдельно от микрофона"
+  );
+
+  await contextA.close();
+  await contextB.close();
+});
+
