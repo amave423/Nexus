@@ -128,26 +128,30 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   function applyUserAudio(userId) {
     const level = volumes.has(userId) ? volumes.get(userId) : 1;
     const muted = state.deafened || testHold || silent.has(userId);
-    const node = nodes.get(userId);
-    if (node) {
-      node.gain.gain.value = muted ? 0 : level;
-      return;
-    }
     const el = sinks.get(userId);
-    if (!el) return;
-    el.muted = muted;
-    el.volume = Math.max(0, Math.min(1, level));
+    const node = nodes.get(userId);
+    if (el) {
+      el.muted = muted;
+      el.volume = node ? 1 : Math.max(0, Math.min(1, level));
+    }
+    if (node) node.gain.gain.value = muted ? 0 : level;
   }
 
   function audioDebug() {
     const ids = new Set([...nodes.keys(), ...sinks.keys()]);
-    return [...ids].map((userId) => ({
-      userId,
-      gain: nodes.get(userId) ? nodes.get(userId).gain.gain.value : null,
-      volume: sinks.get(userId) ? sinks.get(userId).volume : null,
-      volumeSet: volumes.has(userId) ? volumes.get(userId) : 1,
-      silent: silent.has(userId) || state.deafened,
-    }));
+    return [...ids].map((userId) => {
+      const el = sinks.get(userId);
+      return {
+        userId,
+        gain: nodes.get(userId) ? nodes.get(userId).gain.gain.value : null,
+        volume: el ? el.volume : null,
+        muted: el ? el.muted : null,
+        live: el && el.srcObject ? el.srcObject.getAudioTracks().every((track) => track.readyState === "live") : null,
+        context: mixCtx ? mixCtx.state : "none",
+        volumeSet: volumes.has(userId) ? volumes.get(userId) : 1,
+        silent: silent.has(userId) || state.deafened,
+      };
+    });
   }
 
   function setUserVolume(userId, value) {
@@ -163,6 +167,9 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       mixCtx = new AudioContext({ latencyHint: "interactive" });
       mixBus = mixCtx.createGain();
       mixBus.connect(mixCtx.destination);
+      mixCtx.addEventListener("statechange", () => {
+        if (mixCtx && mixCtx.state === "running") routeAll();
+      });
       applyOutput(settings());
       resumeMix();
     } catch {
@@ -174,6 +181,30 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function resumeMix() {
     if (mixCtx && mixCtx.state === "suspended") mixCtx.resume().catch(() => {});
+  }
+
+  function routeElement(userId, el) {
+    if (nodes.has(userId) || !el) return false;
+    const ctx = mix();
+    if (!ctx || !mixBus || ctx.state !== "running") return false;
+    try {
+      const source = ctx.createMediaElementSource(el);
+      const gain = ctx.createGain();
+      gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
+      source.connect(gain);
+      gain.connect(mixBus);
+      nodes.set(userId, { source, gain, el, stream: el.srcObject });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function routeAll() {
+    for (const [userId, el] of sinks) {
+      if (!nodes.has(userId)) routeElement(userId, el);
+      applyUserAudio(userId);
+    }
   }
 
   document.addEventListener("pointerdown", resumeMix, { passive: true });
@@ -195,17 +226,14 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
       el.dataset.voice = String(userId);
       document.body.appendChild(el);
       sinks.set(userId, el);
-      applyOutput(settings());
+      if (el.setSinkId) el.setSinkId(settings()?.outDevId || "").catch(() => {});
     }
     return el;
   }
 
   function applyOutput(pref = settings() || {}) {
     const target = pref.outDevId || "";
-    if (mixCtx && mixCtx.setSinkId) {
-      mixCtx.setSinkId(target).catch(() => {});
-      return;
-    }
+    if (mixCtx && mixCtx.setSinkId) mixCtx.setSinkId(target).catch(() => {});
     for (const el of sinks.values()) {
       if (!el.setSinkId) continue;
       if ((el.sinkId || "") === target) continue;
@@ -354,30 +382,16 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function attachAudio(userId, stream) {
-    const known = nodes.get(userId);
-    if (known && known.stream === stream) return;
-    if (known) dropSink(userId);
-    const ctx = mix();
-    if (ctx && mixBus) {
-      try {
-        const source = ctx.createMediaStreamSource(stream);
-        const gain = ctx.createGain();
-        gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
-        source.connect(gain);
-        gain.connect(mixBus);
-        nodes.set(userId, { source, gain, stream });
-        resumeMix();
-        applyUserAudio(userId);
-        return;
-      } catch {
-        /* без WebAudio остаётся элемент */
-      }
-    }
     const el = sinkFor(userId);
-    if (el.srcObject === stream) return;
-    el.srcObject = stream;
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.play().catch(() => {});
+      const node = nodes.get(userId);
+      if (node) node.stream = stream;
+    }
+    if (!nodes.has(userId)) routeElement(userId, el);
+    resumeMix();
     applyUserAudio(userId);
-    el.play().catch(() => {});
   }
 
   function dropSink(userId) {
