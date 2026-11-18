@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from "svelte";
   import { api } from "./api.js";
-  import { prefs, ACCENTS, DEFAULTS, NOISE, STREAM_RES, STREAM_FPS } from "./prefs.js";
+  import { prefs, ACCENTS, DEFAULTS, NOISE, NOISE_HINT, STREAM_RES, STREAM_FPS } from "./prefs.js";
   import { buildMicTrack } from "./noise.js";
   import { playSound } from "./sound.js";
   import { toast } from "./toasts.js";
@@ -221,10 +221,11 @@
         track = micStream.getAudioTracks()[0];
         if (!track || track.readyState !== "live") throw new Error("Mic track is not live");
         let noiseFailed = false;
-        if (P.noiseMode === "rnnoise") {
+        const chained = ["rnnoise", "rnnoise_gate", "gate"].includes(P.noiseMode);
+        if (chained) {
           micState = "загружаю шумодав…";
           try {
-            micChain = await buildMicTrack(micStream, { level: P.micLevel, mode: "rnnoise" });
+            micChain = await buildMicTrack(micStream, { level: P.micLevel, mode: P.noiseMode });
             track = micChain.track;
             noiseFailed = !!micChain.failed;
           } catch {
@@ -234,7 +235,7 @@
         }
         micState = noiseFailed
           ? "шумодав не загрузился — работает браузерный"
-          : P.noiseMode === "rnnoise"
+          : chained
             ? "говори — слышишь себя так же, как слышат в комнате"
             : "говори — полоски должны шевелиться";
       }
@@ -484,12 +485,13 @@
             <input
               type="range"
               class="set-range"
-              style="--fill:{P.micLevel}%"
+              style="--fill:{P.micLevel / 2}%"
               min="0"
-              max="100"
+              max="200"
               value={P.micLevel}
               on:input={(e) => set({ micLevel: +e.currentTarget.value })}
             />
+            <small>Свыше 100% тихий микрофон подтягивается — лимитер не даст захрипеть.</small>
           </div>
 
           <div class="vtest" class:live={meterLive}>
@@ -511,13 +513,14 @@
           </div>
 
           <div class="set-row">
-            <div class="set-row-t"><b>Шумоподавление</b><span>RNNoise вырезает клавиатуру, вентилятор и улицу</span></div>
+            <div class="set-row-t"><b>Шумоподавление</b><span>{NOISE_HINT[P.noiseMode] || NOISE_HINT.rnnoise}</span></div>
             <Dropdown
               value={Object.keys(NOISE).find((label) => NOISE[label] === P.noiseMode) || "RNNoise · сильный"}
               options={Object.keys(NOISE)}
               on:change={(e) => { set({ noiseMode: NOISE[e.detail] || "rnnoise" }); stopMeter(); }}
             />
           </div>
+          <p class="set-hint">Если тебя плохо слышно с самого начала — подними «Уровень микрофона» до 150–200% и возьми «RNNoise + гейт». Гейт отсекает клики и фон между фразами, а срез низа убирает гул.</p>
           <div class="set-row">
             <div class="set-row-t"><b>Эхоподавление</b><span>Гасит эхо, когда слушаешь в колонках</span></div>
             <button class="switch" class:on={P.echoCancel} role="switch" aria-checked={P.echoCancel} on:click={() => set({ echoCancel: !P.echoCancel })}><i></i></button>

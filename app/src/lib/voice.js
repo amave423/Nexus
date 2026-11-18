@@ -41,11 +41,11 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   const rosters = new Map();
   const levels = new Map();
   const sinks = new Map();
-  const nodes = new Map();
   const volumes = new Map();
   const silent = new Set();
   let mixCtx = null;
   let mixBus = null;
+  let mixProbe = null;
   let levelsPublish = 0;
   let testHold = false;
   let heldEnabled = [];
@@ -128,19 +128,23 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   const audioKey = (userId, source) => `${userId}:${source === "screen" ? "screen" : "mic"}`;
   const audioKeysOf = (userId) =>
-    [...new Set([...sinks.keys(), ...nodes.keys()])].filter((key) => key === audioKey(userId, "mic") || key === audioKey(userId, "screen"));
+    [...sinks.keys()].filter((key) => key === audioKey(userId, "mic") || key === audioKey(userId, "screen"));
 
   function applyKeyAudio(key) {
     const userId = Number(String(key).split(":")[0]);
     const level = volumes.has(userId) ? volumes.get(userId) : 1;
     const muted = state.deafened || testHold || silent.has(userId);
-    const el = sinks.get(key);
-    const node = nodes.get(key);
-    if (el) {
-      el.muted = muted;
-      el.volume = node ? 1 : Math.max(0, Math.min(1, level));
+    const entry = sinks.get(key);
+    if (!entry) return;
+    if (entry.gain) {
+      entry.gain.gain.value = muted ? 0 : level;
+      if (entry.el) entry.el.muted = true;
+      return;
     }
-    if (node) node.gain.gain.value = muted ? 0 : level;
+    if (entry.el) {
+      entry.el.muted = muted;
+      entry.el.volume = Math.max(0, Math.min(1, level));
+    }
   }
 
   function applyUserAudio(userId) {
@@ -148,19 +152,19 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   }
 
   function audioDebug() {
-    const ids = new Set([...nodes.keys(), ...sinks.keys()]);
-    return [...ids].map((key) => {
-      const el = sinks.get(key);
+    return [...sinks.entries()].map(([key, entry]) => {
+      const userId = Number(String(key).split(":")[0]);
       return {
         key,
-        userId: Number(String(key).split(":")[0]),
-        gain: nodes.get(key) ? nodes.get(key).gain.gain.value : null,
-        volume: el ? el.volume : null,
-        muted: el ? el.muted : null,
-        live: el && el.srcObject ? el.srcObject.getAudioTracks().every((track) => track.readyState === "live") : null,
+        userId,
+        mode: entry.gain ? "graph" : entry.el ? "element" : "none",
+        gain: entry.gain ? entry.gain.gain.value : null,
+        volume: entry.el ? entry.el.volume : null,
+        muted: entry.el ? entry.el.muted : null,
+        live: entry.stream ? entry.stream.getAudioTracks().every((track) => track.readyState === "live") : null,
         context: mixCtx ? mixCtx.state : "none",
-        volumeSet: volumes.has(Number(String(key).split(":")[0])) ? volumes.get(Number(String(key).split(":")[0])) : 1,
-        silent: silent.has(Number(String(key).split(":")[0])) || state.deafened,
+        volumeSet: volumes.has(userId) ? volumes.get(userId) : 1,
+        silent: silent.has(userId) || state.deafened,
       };
     });
   }
@@ -177,7 +181,10 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     try {
       mixCtx = new AudioContext({ latencyHint: "interactive" });
       mixBus = mixCtx.createGain();
-      mixBus.connect(mixCtx.destination);
+      mixProbe = mixCtx.createAnalyser();
+      mixProbe.fftSize = 2048;
+      mixBus.connect(mixProbe);
+      mixProbe.connect(mixCtx.destination);
       mixCtx.addEventListener("statechange", () => {
         if (mixCtx && mixCtx.state === "running") routeAll();
       });
@@ -186,35 +193,83 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     } catch {
       mixCtx = null;
       mixBus = null;
+      mixProbe = null;
     }
     return mixCtx;
+  }
+
+  function mixLevel() {
+    if (!mixProbe) return 0;
+    const buffer = new Float32Array(mixProbe.fftSize);
+    mixProbe.getFloatTimeDomainData(buffer);
+    let sum = 0;
+    for (const value of buffer) sum += value * value;
+    return Math.sqrt(sum / buffer.length);
   }
 
   function resumeMix() {
     if (mixCtx && mixCtx.state === "suspended") mixCtx.resume().catch(() => {});
   }
 
-  function routeElement(key, el) {
-    if (nodes.has(key) || !el) return false;
-    const ctx = mix();
-    if (!ctx || !mixBus || ctx.state !== "running") return false;
-    const userId = Number(String(key).split(":")[0]);
+  function disconnectGraph(entry) {
+    if (!entry) return;
     try {
-      const source = ctx.createMediaElementSource(el);
+      entry.source?.disconnect();
+      entry.gain?.disconnect();
+    } catch {
+      /* уже отключено */
+    }
+    entry.source = null;
+    entry.gain = null;
+  }
+
+  function ensureElement(key, entry) {
+    if (entry.el || !entry.stream) return entry.el;
+    const el = document.createElement("audio");
+    el.autoplay = true;
+    el.setAttribute("playsinline", "");
+    el.dataset.voice = String(Number(String(key).split(":")[0]));
+    el.dataset.source = key.endsWith(":screen") ? "screen" : "mic";
+    // без этого элемента удалённая дорожка не рендерится вовсе (Chromium не отдаёт её в WebAudio)
+    el.muted = true;
+    el.srcObject = entry.stream;
+    document.body.appendChild(el);
+    if (el.setSinkId) el.setSinkId(settings()?.outDevId || "").catch(() => {});
+    el.play().catch(() => {});
+    entry.el = el;
+    return el;
+  }
+
+  function toGraph(key, entry) {
+    if (!entry?.stream || entry.gain) return false;
+    const ctx = mix();
+    if (!ctx || !mixBus) return false;
+    try {
+      ensureElement(key, entry);
+      const source = ctx.createMediaStreamSource(entry.stream);
       const gain = ctx.createGain();
+      const userId = Number(String(key).split(":")[0]);
       gain.gain.value = volumes.has(userId) ? volumes.get(userId) : 1;
       source.connect(gain);
       gain.connect(mixBus);
-      nodes.set(key, { source, gain, el, stream: el.srcObject });
-      return true;
+      entry.source = source;
+      entry.gain = gain;
+      if (entry.el) entry.el.muted = true;
     } catch {
       return false;
     }
+    return true;
+  }
+
+  function fallbackToElement(key, entry) {
+    if (!entry?.stream || entry.gain) return;
+    ensureElement(key, entry);
+    applyKeyAudio(key);
   }
 
   function routeAll() {
-    for (const [key, el] of sinks) {
-      if (!nodes.has(key)) routeElement(key, el);
+    for (const [key, entry] of sinks) {
+      toGraph(key, entry);
       applyKeyAudio(key);
     }
   }
@@ -229,27 +284,12 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     publish();
   }
 
-  function sinkFor(userId, source = "mic") {
-    const key = audioKey(userId, source);
-    let el = sinks.get(key);
-    if (!el) {
-      el = document.createElement("audio");
-      el.autoplay = true;
-      el.setAttribute("playsinline", "");
-      el.dataset.voice = String(userId);
-      el.dataset.source = source === "screen" ? "screen" : "mic";
-      document.body.appendChild(el);
-      sinks.set(key, el);
-      if (el.setSinkId) el.setSinkId(settings()?.outDevId || "").catch(() => {});
-    }
-    return el;
-  }
-
   function applyOutput(pref = settings() || {}) {
     const target = pref.outDevId || "";
     if (mixCtx && mixCtx.setSinkId) mixCtx.setSinkId(target).catch(() => {});
-    for (const el of sinks.values()) {
-      if (!el.setSinkId) continue;
+    for (const entry of sinks.values()) {
+      const el = entry.el;
+      if (!el || !el.setSinkId) continue;
       if ((el.sinkId || "") === target) continue;
       el.setSinkId(target).catch(() => {});
     }
@@ -397,34 +437,40 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function attachAudio(userId, stream, source = "mic") {
     const key = audioKey(userId, source);
-    const el = sinkFor(userId, source);
-    if (el.srcObject !== stream) {
-      el.srcObject = stream;
-      el.play().catch(() => {});
-      const node = nodes.get(key);
-      if (node) node.stream = stream;
+    let entry = sinks.get(key);
+    if (!entry) {
+      entry = { stream: null, source: null, gain: null, el: null };
+      sinks.set(key, entry);
     }
-    if (!nodes.has(key)) routeElement(key, el);
+    if (entry.stream !== stream) {
+      disconnectGraph(entry);
+      if (entry.el) {
+        entry.el.srcObject = null;
+        entry.el.remove();
+        entry.el = null;
+      }
+      entry.stream = stream;
+      if (!toGraph(key, entry)) fallbackToElement(key, entry);
+    }
     resumeMix();
     applyKeyAudio(key);
+    setTimeout(() => {
+      if (sinks.get(key) !== entry) return;
+      if (!entry.gain || !mixCtx || mixCtx.state !== "running") fallbackToElement(key, entry);
+    }, 1500);
   }
 
   function dropKey(key) {
-    const node = nodes.get(key);
-    nodes.delete(key);
-    if (node) {
-      try {
-        node.source.disconnect();
-        node.gain.disconnect();
-      } catch {
-        /* уже отключено */
-      }
-    }
-    const el = sinks.get(key);
-    if (!el) return;
-    el.srcObject = null;
-    el.remove();
+    const entry = sinks.get(key);
     sinks.delete(key);
+    if (!entry) return;
+    disconnectGraph(entry);
+    entry.stream = null;
+    if (entry.el) {
+      entry.el.srcObject = null;
+      entry.el.remove();
+      entry.el = null;
+    }
   }
 
   function dropSink(userId) {
@@ -683,7 +729,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     consumers.clear();
     remote.clear();
     levels.clear();
-    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) dropKey(key);
+    for (const key of new Set([...sinks.keys()])) dropKey(key);
     pendingProducers.length = 0;
     await stopMic();
     stopCamera({ silent: true });
@@ -769,7 +815,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
         }).catch(() => {});
       }
     }
-    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) applyKeyAudio(key);
+    for (const key of new Set([...sinks.keys()])) applyKeyAudio(key);
     publish();
     return true;
   }
@@ -777,7 +823,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
   async function setDeafened(deafened, silent = false) {
     const changed = state.deafened !== deafened;
     state.deafened = deafened;
-    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) applyKeyAudio(key);
+    for (const key of new Set([...sinks.keys()])) applyKeyAudio(key);
     pushState();
     if (changed && !silent) soundCue(deafened ? "deafen" : "undeafen");
   }
@@ -1101,7 +1147,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
 
   function reset() {
     for (const userId of remote.keys()) dropUser(userId);
-    for (const key of new Set([...nodes.keys(), ...sinks.keys()])) dropKey(key);
+    for (const key of new Set([...sinks.keys()])) dropKey(key);
     rosters.clear();
     levels.clear();
     state.channelId = null;
@@ -1138,6 +1184,7 @@ export function createVoiceClient({ send, settings = () => ({}) }) {
     micInfo,
     stats,
     audioDebug,
+    mixLevel,
     screenMode,
     get state() {
       return state;

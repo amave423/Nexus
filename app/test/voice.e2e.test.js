@@ -70,6 +70,40 @@ async function voiceDebug(page) {
   });
 }
 
+async function mixPeak(page, ms = 1200) {
+  return page.evaluate(async (duration) => {
+    const voice = window.__nexusVoice;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    let top = 0;
+    const end = performance.now() + duration;
+    while (performance.now() < end) {
+      top = Math.max(top, voice.mixLevel());
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return top;
+  }, ms);
+}
+
+const TONE_MIC = () => {
+  const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    if (constraints && constraints.audio && !constraints.video) {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 440;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.3;
+      const dest = ctx.createMediaStreamDestination();
+      osc.connect(gain);
+      gain.connect(dest);
+      osc.start();
+      ctx.resume().catch(() => {});
+      return dest.stream;
+    }
+    return orig(constraints);
+  };
+};
+
 async function waitForAudio(page, label) {
   const deadline = Date.now() + 30000;
   let last = [];
@@ -396,17 +430,27 @@ test("голос: смена шумодава в канале не ломает 
   await pageA.getByRole("button", { name: "Голос и видео" }).click();
   const pane = pageA.getByRole("dialog");
 
-  for (const label of ["Браузерный · лёгкий", "Выключен", "RNNoise · сильный"]) {
-    await pane.locator(".dd.open").count();
-    await pane.locator(".dd-btn", { hasText: /RNNoise|Браузерный|Выключен/ }).first().click();
+  const modes = [
+    ["Браузерный · лёгкий", "browser"],
+    ["Выключен", "off"],
+    ["RNNoise + гейт · максимум", "rnnoise_gate"],
+    ["Своя цепочка · без ИИ", "gate"],
+    ["RNNoise · сильный", "rnnoise"],
+  ];
+  for (const [label, mode] of modes) {
+    await pane.locator(".dd-btn", { hasText: /RNNoise|Браузерный|Выключен|Своя цепочка/ }).first().click();
     await pageA.locator(".dd-opt", { hasText: label }).first().click();
-    await pageA.waitForTimeout(1500);
+    await pageA.waitForTimeout(1800);
     const mic = await pageA.evaluate(() => ({
       error: window.__nexusVoice.state.micError,
+      noise: window.__nexusVoice.state.noise,
       track: window.__nexusVoice.micTrack() ? window.__nexusVoice.micTrack().readyState : "none",
+      mode: window.__nexusPrefs.get().noiseMode,
     }));
+    assert.equal(mic.mode, mode, `шумодав «${label}» выбран`);
     assert.equal(mic.error, null, `шумодав «${label}»: ошибки микрофона нет`);
     assert.equal(mic.track, "live", `шумодав «${label}»: дорожка жива`);
+    assert.notEqual(mic.noise, "failed", `шумодав «${label}» включился, а не отвалился`);
   }
 
   await pane.getByRole("button", { name: "Закрыть" }).click();
@@ -517,6 +561,65 @@ test("голос: меню участника даёт громкость до 2
     hushed.every((item) => item.gain === null || item.gain === 0),
     "личный мьют глушит звук до нуля"
   );
+
+  await contextA.close();
+  await contextB.close();
+});
+
+test("голос: громкость участника меняет то, что слышно", async (t) => {
+  await startServer();
+  const browser = await chromium.launch({ args: FAKE_MEDIA });
+  t.after(() => stopAll(browser));
+
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  await contextB.addInitScript(TONE_MIC);
+  const pageA = await contextA.newPage();
+  const pageB = await contextB.newPage();
+
+  await register(pageA, "Артём");
+  await register(pageB, "Мира");
+  await joinVoice(pageB);
+  await joinVoice(pageA);
+  await pageA.locator(".pulse-col").nth(1).waitFor({ timeout: 20000 });
+  await waitForAudio(pageA, "Артёма");
+
+  const full = await mixPeak(pageA);
+  assert.ok(full > 0.01, `голос Миры слышно в микшере (уровень ${full})`);
+
+  await pageB.evaluate(() => window.__nexusPrefs.patch({ noiseMode: "rnnoise_gate" }));
+  await pageB.waitForTimeout(2500);
+  const gated = await mixPeak(pageA);
+  assert.ok(gated > full * 0.6, `гейт пропускает голос, а не рубит его (${gated} против ${full})`);
+  await pageB.evaluate(() => window.__nexusPrefs.patch({ noiseMode: "rnnoise" }));
+
+  await pageA.locator('.pulse-col[title="Мира"]').click({ button: "right" });
+  const menu = pageA.locator(".umenu");
+  await menu.waitFor({ timeout: 5000 });
+
+  const drag = async (value) => {
+    await menu.locator(".umenu-range").evaluate((el, next) => {
+      el.value = String(next);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, value);
+  };
+
+  await drag(30);
+  const quiet = await mixPeak(pageA);
+  assert.ok(quiet > 0 && quiet < full * 0.55, `на 30% слышно тише (${quiet} против ${full})`);
+
+  await drag(200);
+  const loud = await mixPeak(pageA);
+  assert.ok(loud > full * 1.5, `на 200% слышно громче (${loud} против ${full})`);
+
+  await drag(0);
+  assert.equal(await mixPeak(pageA), 0, "на 0% — тишина");
+
+  await drag(100);
+  assert.ok((await mixPeak(pageA)) > 0.01, "после возврата на 100% звук снова есть");
+
+  await pageA.locator(".umenu-btn", { hasText: "Заглушить у себя" }).click();
+  assert.equal(await mixPeak(pageA), 0, "личный мьют действительно глушит");
 
   await contextA.close();
   await contextB.close();
@@ -670,6 +773,9 @@ test("стрим: звук компьютера доходит до зрител
     debug.some((item) => String(item.key).endsWith(":screen") && item.live),
     "звук стрима подключён отдельно от микрофона"
   );
+
+  const level = await mixPeak(pageB);
+  assert.ok(level > 0.005, `зритель слышит звук стрима, а не только видит пакеты (уровень ${level})`);
 
   await contextA.close();
   await contextB.close();
